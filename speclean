@@ -37,8 +37,8 @@ def main():
     #dump_tokens(r'''1!=2 a || b && c''')
     #dump_tokens(r'''0 %foo < 4''')
     #dump_tokens(r'''0%foo < 4''')
-    # dump_parsing("1+1 < 10*2")
-    dump_parsing("0%suse_version+1 < 1110 && %other_var && %suse_version > 500 || 0", env={'suse_version':600})
+    dump_parsing("1+1+%v+1")
+    dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
 
 
 ######################################################################
@@ -133,9 +133,18 @@ def expr_is_false(e): return expr_to_bool(e) == False
 def expr_to_bool(e):
     if isinstance(e, int):
         return e != 0
-    if isinstance(e, str):
+    elif isinstance(e, str):
         return len(e) != 0
     raise Exception("unkown expr type")
+def wrap_type(v):
+    if isinstance(v, int):
+        return NumExpr(v)
+    elif isinstance(v, str):
+        return len(e) != 0
+    elif isinstance(v, Expr):
+        return v
+    raise Exception("unkown expr type")
+
 
 class Expr:
     def evaluate(self, env): pass
@@ -225,9 +234,8 @@ class BinOpExpr(Expr):
         if self.op in (t_PLUS, t_MINUS, t_MUL, t_DIV, t_GT, t_GE, t_LE, t_LT, t_EQ, t_NEQ):
             if eA and eB:
                 return (True, (BIN_OPS[self.op])(A, B))
-            return (False, BinOpExpr(A, self.op, B))
 
-        if self.op == t_AND:
+        elif self.op == t_AND:
             if eA and expr_is_false(A):
                 return (True, 0)
             if eB and expr_is_false(B):
@@ -238,9 +246,8 @@ class BinOpExpr(Expr):
                 return (False, B)
             if eB and expr_is_true(B):
                 return (False, A)
-            return (False, self)
 
-        if self.op == t_OR:
+        elif self.op == t_OR:
             if eA and expr_is_true(A):
                 return (True, 1)
             if eB and expr_is_true(B):
@@ -251,9 +258,8 @@ class BinOpExpr(Expr):
                 return (False, B)
             if eB and expr_is_false(B):
                 return (False, A)
-            return (False, self)
 
-        raise Exception("unkown binop")
+        return (False, BinOpExpr(wrap_type(A), self.op, wrap_type(B)))
 
     def to_str(self, env=None):
         global BINOP_VAL_TO_TOK
