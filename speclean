@@ -1,0 +1,334 @@
+#!/usr/bin/env python3
+
+######################################################################
+#                        Main/testing
+######################################################################
+
+def dump_tokens(s):
+    print("LEXING <%s>"%s)
+    lex.input(s)
+    while True:
+        t = lex.token()
+        if not t:
+            break
+        print("> %-10.10s <%s>"%(t.type, t.value))
+    print()
+
+def dump_parsing(s, env={}):
+    #dump_tokens(s)
+    print("PARSING %s"%s)
+    if env:
+        print("  with env:")
+        for k,v in env.items():
+            print("     %%%s = %s"%(k, str(v)))
+    r = yacc.parse(s)
+    print("=> %s"%r.to_str())
+    is_ev, ev = r.evaluate(env)
+    if is_ev:
+        print("=>", ev, "(decidable!)")
+    else:
+        print("=>", ev.to_str())
+    print()
+
+
+def main():
+    #dump_tokens(r'''1 + 2 * 3''')
+    #dump_tokens(r'''abc_ "foo \" bar"''')
+    #dump_tokens(r'''1!=2 a || b && c''')
+    #dump_tokens(r'''0 %foo < 4''')
+    #dump_tokens(r'''0%foo < 4''')
+    # dump_parsing("1+1 < 10*2")
+    dump_parsing("0%suse_version+1 < 1110 && %other_var && %suse_version > 500 || 0", env={'suse_version':600})
+
+
+######################################################################
+#                          Lexical analysis
+######################################################################
+
+from ply import lex
+
+tokens = (
+    'NUM', 'PLUS', 'MINUS', 'MUL', 'DIV', 'IDENT', 'QSTRING',
+    'LE', 'LT', 'EQ', 'NEQ', 'GE', 'GT', 'AND', 'OR', 'NOT',
+    'LPAR', 'RPAR', 'LBRA', 'RBRA', 'PERCENT',
+)
+
+t_PLUS    = r'\+'
+t_MINUS   = r'-'
+t_MUL     = r'\*'
+t_DIV     = r'/'
+t_LE      = r'<='
+t_LT      = r'<'
+t_EQ      = r'=='
+t_NEQ     = r'!='
+t_GE      = r'>='
+t_GT      = r'>'
+t_AND     = r'&&'
+t_OR      = r'\|\|'
+t_NOT     = r'!'
+t_LPAR    = r'\('
+t_RPAR    = r'\)'
+t_LBRA    = r'\{'
+t_RBRA    = r'\}'
+t_PERCENT = r'%'
+t_NUM     = r'\d+'
+t_IDENT   = r'[a-zA-Z_][a-zA-Z0-9_]*'
+t_QSTRING = r'"(?:[^"\\]|\\.)*"'
+
+BINOP_VAL_TO_TOK = {
+    r'+' : t_PLUS,
+    r'-' : t_MINUS,
+    r'*' : t_MUL,
+    r'/' : t_DIV,
+    r'<=': t_LE,
+    r'<' : t_LT,
+    r'==': t_EQ,
+    r'!=': t_NEQ,
+    r'>=': t_GE,
+    r'>' : t_GT,
+    r'&&': t_AND,
+    r'||': t_OR,
+}
+
+def t_newline(t):
+    r'\n+'
+    t.lexer.lineno += len(t.value)
+
+t_ignore = ' \t'
+
+def t_error(t):
+    print("illegal char <%s>"%t.value)
+    t.lexer.skip(1)
+
+lex.lex()
+
+######################################################################
+#                            AST definitions
+######################################################################
+
+# spec conditional expressions only have 2 types: ints and strings
+# TODO: document semantics of operators vs. type of operands
+# TODO: for now assume python semantics
+BIN_OPS = {
+    t_PLUS:  lambda a, b: a+b,
+    t_MINUS: lambda a, b: a-b,
+    t_MUL:   lambda a, b: a*b,
+    t_DIV:   lambda a, b: a//b,
+    t_LT:    lambda a, b: 1 if a<b  else 0,
+    t_LE:    lambda a, b: 1 if a<=b else 0,
+    t_GE:    lambda a, b: 1 if a>=b else 0,
+    t_GT:    lambda a, b: 1 if a>b  else 0,
+    t_EQ:    lambda a, b: 1 if a==b else 0,
+    t_NEQ:   lambda a, b: 1 if a!=b else 0,
+}
+
+# in a boolean context (logic operators)
+# - int expressions uses the classic
+#   C semantics: zero is false, non-zero true.
+# - string expressions are false when empty, true otherwise
+
+# sugar for easier reading
+def expr_is_true(e): return expr_to_bool(e) == True
+def expr_is_false(e): return expr_to_bool(e) == False
+def expr_to_bool(e):
+    if isinstance(e, int):
+        return e != 0
+    if isinstance(e, str):
+        return len(e) != 0
+    raise Exception("unkown expr type")
+
+class Expr:
+    def evaluate(self, env): pass
+    def to_str(self, env=None): pass
+
+class VarExpr(Expr):
+    def __init__(self, e):
+        #print("VarExpr=<%s>"%e)
+        self.e = e
+
+    def evaluate(self, env):
+        if self.e in env:
+            return (True, env[self.e])
+        else:
+            return (False, self)
+
+    def to_str(self, env=None):
+        return "%"+self.e
+
+class NumExpr(Expr):
+    def __init__(self, n):
+        #print("NumExpr=<%d>"%n)
+        self.n = n
+
+    def evaluate(self, env):
+        return (True, self.n)
+
+    def to_str(self, env=None):
+        return "%d"%self.n
+
+class StrExpr(Expr):
+    def __init__(self, s):
+        #print("StrExpr=<%s>"%s)
+        self.s = s
+
+    def evaluate(self, env):
+        return (True, s)
+
+    def to_str(self, env=None):
+        return '"%s"'%self.s
+
+class NotExpr(Expr):
+    def __init__(self, e):
+        #print("NotExpr(...)"%e)
+        self.e = e
+
+    def evaluate(self, env):
+        eE, E = self.e.evaluate(env)
+        if eE:
+            if expr_is_true(E):
+                return (True, 0)
+            else:
+                return (True, 1)
+        else:
+            return (False, self)
+
+    def to_str(self, env=None):
+        return "!("+self.e.to_str(env)+")"
+
+class UMinusExpr(Expr):
+    def __init__(self, e):
+        #print("UMinusExpr(...)")
+        self.e = e
+
+    def evaluate(self, env):
+        eE, E = self.e.evaluate(env)
+        if eE:
+            return (True, -E)
+        else:
+            return (False, self)
+
+    def to_str(self, env=None):
+        return "-("+self.e.to_str(env)+")"
+
+class BinOpExpr(Expr):
+    def __init__(self, a, op, b):
+        #print("BinOpExpr(...,", op," ...")
+        self.a = a
+        self.b = b
+        self.op = op
+
+    def evaluate(self, env):
+        global BIN_OPS
+        eA, A = self.a.evaluate(env)
+        eB, B = self.b.evaluate(env)
+
+        if self.op in (t_PLUS, t_MINUS, t_MUL, t_DIV, t_GT, t_GE, t_LE, t_LT, t_EQ, t_NEQ):
+            if eA and eB:
+                return (True, (BIN_OPS[self.op])(A, B))
+            return (False, BinOpExpr(A, self.op, B))
+
+        if self.op == t_AND:
+            if eA and expr_is_false(A):
+                return (True, 0)
+            if eB and expr_is_false(B):
+                return (True, 0)
+            if eA and expr_is_true(A) and eB and expr_is_true(B):
+                return (True, 1)
+            if eA and expr_is_true(A):
+                return (False, B)
+            if eB and expr_is_true(B):
+                return (False, A)
+            return (False, self)
+
+        if self.op == t_OR:
+            if eA and expr_is_true(A):
+                return (True, 1)
+            if eB and expr_is_true(B):
+                return (True, 1)
+            if eA and expr_is_false(A) and eB and expr_is_false(B):
+                return (True, 0)
+            if eA and expr_is_false(A):
+                return (False, B)
+            if eB and expr_is_false(B):
+                return (False, A)
+            return (False, self)
+
+        raise Exception("unkown binop")
+
+    def to_str(self, env=None):
+        global BINOP_VAL_TO_TOK
+        op = {v: k for k, v in BINOP_VAL_TO_TOK.items()}[self.op]
+        return "(%s %s %s)"%(self.a.to_str(env), op, self.b.to_str(env))
+
+
+######################################################################
+#                         Parsing
+######################################################################
+
+from ply import yacc
+
+precedence = (
+    ('left', 'AND', 'OR'),
+    ('left', 'LE', 'LT', 'EQ', 'NEQ', 'GE', 'GT'),
+    ('right', 'NOT'),
+    ('left', 'PLUS', 'MINUS'),
+    ('left', 'MUL', 'DIV'),
+     # special precedence rule for unary minus
+    ('right', 'UMINUS'),
+)
+
+def p_expr_num(p):
+    'expr : NUM'
+    p[0] = NumExpr(int(p[1]))
+
+def p_expr_qstr(p):
+    'expr : QSTRING'
+    p[0] = StrExpr(p[1])
+
+def p_expr_bare_str(p):
+    'expr : IDENT'
+    p[0] = StrExpr(p[1])
+
+def p_expr_group(p):
+    'expr : LPAR expr RPAR'
+    p[0] = p[2]
+
+def p_expr_var(p):
+    'expr : PERCENT IDENT'
+    p[0] = VarExpr(p[2])
+
+def p_expr_zvar(p):
+    'expr : NUM PERCENT IDENT'
+    if p[1] != '0':
+        raise Exception("cannot use <num>%var syntax when num is non-zero")
+    p[0] = VarExpr(p[3])
+
+def p_expr_uminus(p):
+    'expr : MINUS expr %prec UMINUS'
+    p[0] = UMinusExpr(p[2])
+
+def p_expr_not(p):
+    'expr : NOT expr'
+    p[0] = NotExpr(p[2])
+
+def p_expr_binop(p):
+    '''expr : expr AND   expr
+            | expr OR    expr
+            | expr EQ    expr
+            | expr NEQ   expr
+            | expr LT    expr
+            | expr LE    expr
+            | expr GT    expr
+            | expr GE    expr
+            | expr PLUS  expr
+            | expr MINUS expr
+            | expr MUL   expr
+            | expr DIV   expr'''
+    p[0] = BinOpExpr(p[1], BINOP_VAL_TO_TOK[p[2]], p[3])
+
+yacc.yacc()
+
+##############################################################
+
+if __name__ == '__main__':
+    main()
