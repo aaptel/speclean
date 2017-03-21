@@ -18,16 +18,16 @@ def dump_parsing(s, env={}):
     #dump_tokens(s)
     print("PARSING %s"%s)
     if env:
-        print("  with env:")
         for k,v in env.items():
-            print("     %%%s = %s"%(k, str(v)))
+            print("  assuming %%%s = %s"%(k, to_str_wrapper(v)))
     r = yacc.parse(s)
     print("=> %s"%r.to_str())
-    is_ev, ev = r.evaluate(env)
-    if is_ev:
-        print("=>", ev, "(decidable!)")
-    else:
+    ev = r.evaluate(env)
+    res = expr_to_bool_or_none(ev)
+    if res is None:
         print("=>", ev.to_str())
+    else:
+        print("=>", ev, "(decidable!)")
     print()
 
 
@@ -37,8 +37,12 @@ def main():
     #dump_tokens(r'''1!=2 a || b && c''')
     #dump_tokens(r'''0 %foo < 4''')
     #dump_tokens(r'''0%foo < 4''')
-    dump_parsing("1+1+%v+1")
-    dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
+    dump_parsing("1+1+5+8*2+1*4")
+    #dump_parsing("%foo+1+1*3+1+1", env={'foo':1})
+    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
+    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
+    dump_parsing("%foo-1>0", env={'foo':RangedValueExpr(LO_INF, -10)})
+    #dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
 
 
 ######################################################################
@@ -89,6 +93,7 @@ BINOP_VAL_TO_TOK = {
     r'&&': t_AND,
     r'||': t_OR,
 }
+BINOP_TOK_TO_VAL = {v: k for k, v in BINOP_VAL_TO_TOK.items()}
 
 def t_newline(t):
     r'\n+'
@@ -122,20 +127,100 @@ BIN_OPS = {
     t_NEQ:   lambda a, b: 1 if a!=b else 0,
 }
 
+def to_str_wrapper(v, env={}):
+    if isinstance(v, int):
+        return "%d"%v
+    elif isinstance(v, str):
+        return v
+    else:
+        return v.to_str(env)
+
+def bin_op_wrapper(a, op, b):
+    if isinstance(a, int) and isinstance(b, int):
+        return BIN_OPS[op](a,b)
+    elif isinstance(a, int) and isinstance(b, RangedValueExpr):
+        if op in (t_PLUS, t_MINUS):
+            return RangedValueExpr(BIN_OPS[op](a,b.lo), BIN_OPS[op](a,b.hi))
+        elif op == t_LT:
+            if a < b.lo: return 1
+            elif a > b.hi: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_LE: # XXX check if really same
+            if a < b.lo: return 1
+            elif a > b.hi: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_GT:
+            if a > b.hi: return 1
+            elif a < b.lo: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_GE: # XXX check if really same
+            if a > b.hi: return 1
+            elif a < b.lo: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_EQ:
+            if not b.contains(a):
+                return 0
+        elif op == t_NEQ:
+            if not b.contains(a):
+                return 1
+        return None
+    elif isinstance(a, RangedValueExpr) and isinstance(b, RangedValueExpr):
+        if op == t_PLUS:
+            return RangedValueExpr(a.lo+b.lo, a.hi+b.hi)
+        print("XXX: not smart about ranged-ranged binary operations yet!")
+        return None
+    elif isinstance(a, RangedValueExpr) and isinstance(b, int):
+        if op in (t_PLUS, t_MINUS):
+            return RangedValueExpr(BIN_OPS[op](a.lo,b), BIN_OPS[op](a.hi,b))
+        elif op == t_LT:
+            if a.hi < b: return 1
+            elif a.lo > b: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_LE: # XXX check if really same
+            if a.hi < b: return 1
+            elif a.lo > b: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_GT:
+            if a.lo > b: return 1
+            elif a.hi < b: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_GE: # XXX check if really same
+            if a.lo > b: return 1
+            elif a.hi < b: return 0
+            #else: return BinOpExpr(a, op, b)
+        elif op == t_EQ:
+            if not a.contains(b):
+                return 0
+        elif op == t_NEQ:
+            if not a.contains(b):
+                return 1
+        return None
+    print("A:%s %s B:%s"%(type(a), BINOP_TOK_TO_VAL[op], type(b)))
+    return None
+
+
 # in a boolean context (logic operators)
 # - int expressions uses the classic
 #   C semantics: zero is false, non-zero true.
 # - string expressions are false when empty, true otherwise
 
 # sugar for easier reading
-def expr_is_true(e): return expr_to_bool(e) == True
-def expr_is_false(e): return expr_to_bool(e) == False
-def expr_to_bool(e):
+def expr_is_true(e): return expr_to_bool_or_none(e) == True
+def expr_is_false(e): return expr_to_bool_or_none(e) == False
+def expr_to_bool_or_none(e):
     if isinstance(e, int):
         return e != 0
     elif isinstance(e, str):
         return len(e) != 0
-    raise Exception("unkown expr type")
+    elif isinstance(e, RangedValueExpr):
+        if not e.contains(0):
+            return True
+    return None
+
+class Expr:
+    def evaluate(self, env): pass
+    def to_str(self, env=None): pass
+
 def wrap_type(v):
     if isinstance(v, int):
         return NumExpr(v)
@@ -145,24 +230,43 @@ def wrap_type(v):
         return v
     raise Exception("unkown expr type")
 
+class ValueExpr(Expr):
+    pass
 
-class Expr:
-    def evaluate(self, env): pass
-    def to_str(self, env=None): pass
+from decimal import Decimal
+LO_INF = Decimal("-infinity")
+HI_INF = Decimal("infinity")
+
+def int_range_to_str(v):
+    if v == LO_INF:
+        return "-inf"
+    elif v == HI_INF:
+        return "inf"
+    return "%d"%v
+
+class RangedValueExpr(ValueExpr):
+    def __init__(self, lo=LO_INF, hi=HI_INF):
+            self.lo = min(lo,hi)
+            self.hi = max(lo,hi)
+    def contains(self, n):
+        return self.lo <= n <= self.hi
+
+    def to_str(self, env):
+        return "[%s ; %s]"%(int_range_to_str(self.lo),
+                          int_range_to_str(self.hi))
 
 class VarExpr(Expr):
-    def __init__(self, e):
+    def __init__(self, name):
         #print("VarExpr=<%s>"%e)
-        self.e = e
+        self.name = name
 
     def evaluate(self, env):
-        if self.e in env:
-            return (True, env[self.e])
-        else:
-            return (False, self)
+        if self.name in env:
+            return env[self.name]
+        return self
 
     def to_str(self, env=None):
-        return "%"+self.e
+        return "%"+self.name
 
 class NumExpr(Expr):
     def __init__(self, n):
@@ -170,7 +274,7 @@ class NumExpr(Expr):
         self.n = n
 
     def evaluate(self, env):
-        return (True, self.n)
+        return self.n
 
     def to_str(self, env=None):
         return "%d"%self.n
@@ -181,7 +285,7 @@ class StrExpr(Expr):
         self.s = s
 
     def evaluate(self, env):
-        return (True, s)
+        return self.s
 
     def to_str(self, env=None):
         return '"%s"'%self.s
@@ -192,17 +296,16 @@ class NotExpr(Expr):
         self.e = e
 
     def evaluate(self, env):
-        eE, E = self.e.evaluate(env)
-        if eE:
-            if expr_is_true(E):
-                return (True, 0)
-            else:
-                return (True, 1)
+        e = self.e.evaluate(env)
+        if expr_is_true(e):
+            return 0
+        elif expr_is_false(e):
+            return 1
         else:
-            return (False, self)
+            return e
 
     def to_str(self, env=None):
-        return "!("+self.e.to_str(env)+")"
+        return "!("+to_str_wrapper(self.e, env)+")"
 
 class UMinusExpr(Expr):
     def __init__(self, e):
@@ -210,14 +313,14 @@ class UMinusExpr(Expr):
         self.e = e
 
     def evaluate(self, env):
-        eE, E = self.e.evaluate(env)
-        if eE:
-            return (True, -E)
+        e = self.e.evaluate(env)
+        if isinstance(e, int):
+            return -e
         else:
-            return (False, self)
+            return UMinusExpr(e)
 
     def to_str(self, env=None):
-        return "-("+self.e.to_str(env)+")"
+        return "-("+to_str_wrapper(self.e,env)+")"
 
 class BinOpExpr(Expr):
     def __init__(self, a, op, b):
@@ -227,44 +330,42 @@ class BinOpExpr(Expr):
         self.op = op
 
     def evaluate(self, env):
-        global BIN_OPS
-        eA, A = self.a.evaluate(env)
-        eB, B = self.b.evaluate(env)
+        A = self.a.evaluate(env)
+        B = self.b.evaluate(env)
 
         if self.op in (t_PLUS, t_MINUS, t_MUL, t_DIV, t_GT, t_GE, t_LE, t_LT, t_EQ, t_NEQ):
-            if eA and eB:
-                return (True, (BIN_OPS[self.op])(A, B))
+            r = bin_op_wrapper(A, self.op, B)
+            if r is not None:
+                return r
 
         elif self.op == t_AND:
-            if eA and expr_is_false(A):
-                return (True, 0)
-            if eB and expr_is_false(B):
-                return (True, 0)
-            if eA and expr_is_true(A) and eB and expr_is_true(B):
-                return (True, 1)
-            if eA and expr_is_true(A):
-                return (False, B)
-            if eB and expr_is_true(B):
-                return (False, A)
+            if expr_is_false(A):
+                return 0
+            if expr_is_false(B):
+                return 0
+            if expr_is_true(A) and expr_is_true(B):
+                return 1
+            if expr_is_true(A):
+                return B
+            if expr_is_true(B):
+                return A
 
         elif self.op == t_OR:
-            if eA and expr_is_true(A):
-                return (True, 1)
-            if eB and expr_is_true(B):
-                return (True, 1)
-            if eA and expr_is_false(A) and eB and expr_is_false(B):
-                return (True, 0)
-            if eA and expr_is_false(A):
-                return (False, B)
-            if eB and expr_is_false(B):
-                return (False, A)
+            if expr_is_true(A):
+                return 1
+            if expr_is_true(B):
+                return 1
+            if expr_is_false(A) and expr_is_false(B):
+                return 0
+            if expr_is_false(A):
+                return B
+            if expr_is_false(B):
+                return A
 
-        return (False, BinOpExpr(wrap_type(A), self.op, wrap_type(B)))
+        return BinOpExpr(A, self.op, B)
 
     def to_str(self, env=None):
-        global BINOP_VAL_TO_TOK
-        op = {v: k for k, v in BINOP_VAL_TO_TOK.items()}[self.op]
-        return "(%s %s %s)"%(self.a.to_str(env), op, self.b.to_str(env))
+        return "(%s %s %s)"%(to_str_wrapper(self.a,env), BINOP_TOK_TO_VAL[self.op], to_str_wrapper(self.b,env))
 
 
 ######################################################################
@@ -302,6 +403,10 @@ def p_expr_group(p):
 def p_expr_var(p):
     'expr : PERCENT IDENT'
     p[0] = VarExpr(p[2])
+
+def p_expr_var_braced(p):
+    'expr : PERCENT LBRA IDENT RBRA'
+    p[0] = VarExpr(p[3])
 
 def p_expr_zvar(p):
     'expr : NUM PERCENT IDENT'
