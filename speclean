@@ -300,9 +300,9 @@ class NumExpr(Expr):
 
 class StrExpr(Expr):
     def __init__(self, s, quoted=True):
+        if quoted:
+            s = decode_quoted_str(s)
         #print("StrExpr=<%s>"%s)
-        #if quoted:
-
         self.s = s
 
     def evaluate(self, env):
@@ -421,7 +421,7 @@ def p_expr_qstr(p):
 
 def p_expr_bare_str(p):
     'expr : IDENT'
-    p[0] = StrExpr(p[1])
+    p[0] = StrExpr(p[1], quoted=False)
 
 def p_expr_group(p):
     'expr : LPAR expr RPAR'
@@ -466,7 +466,27 @@ def p_expr_binop(p):
 
 yacc.yacc()
 
-##############################################################
+######################################################################
+#                          Utils
+######################################################################
+
+import re
+import codecs
+
+ESCAPE_SEQUENCE_RE = re.compile(r'''
+    ( \\U........      # 8-digit hex escapes
+    | \\u....          # 4-digit hex escapes
+    | \\x..            # 2-digit hex escapes
+    | \\[0-7]{1,3}     # Octal escapes
+    | \\N\{[^}]+\}     # Unicode characters by name
+    | \\[\\'"abfnrtv]  # Single-character escapes
+    )''', re.UNICODE | re.VERBOSE)
+
+def decode_quoted_str(s):
+    def decode_match(match):
+        return codecs.decode(match.group(0), 'unicode-escape')
+
+    return ESCAPE_SEQUENCE_RE.sub(decode_match, s[1:-1])
 
 if __name__ == '__main__':
     main()
