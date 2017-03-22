@@ -46,6 +46,8 @@ def main():
     dump_parsing('''%s == aaa && 5 <= %v+1 && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
     dump_parsing('''%s == aaa && 5 <= 1*(%v+1) && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
     #dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
+    #print("<%s>"%expand_with_rpmspec('(%xyz) (%?xyz) (%?name) (%{?!xyz:%{?!abc:repl}})'))
+    print("<%s>"%expand_with_rpmspec('%define aaa %(ls)\n%aaa'))
 
 
 ######################################################################
@@ -479,6 +481,92 @@ def p_expr_binop(p):
     p[0] = BinOpExpr(p[1], BINOP_VAL_TO_TOK[p[2]], p[3])
 
 yacc.yacc()
+
+######################################################################
+#                      Spec file things
+######################################################################
+import re
+import subprocess
+import tempfile
+
+IF_RX = re.compile(r"^\s*%if ")
+IFARCH_RX = re.compile(r"^\s*%ifarch ")
+IFNARCH_RX = re.compile(r"^\s*%ifnarch ")
+ELSE_RX = re.compile(r"^\s*%else")
+ENDIF_RX = re.compile(r"^\s*%endif")
+
+def expand_with_rpmspec(s):
+    beg = '#----xxxx-BEG-xxxx----\n'
+    end = '\n#----xxxx-END-xxxx----\n'
+    src = 'Summary: test summary\nName: test\n\nVersion: 1.2\nRelease: 1\n'+ \
+          'License: GPL\n%description\n%prep\n'+beg+s+end+'%build\n%install\n'+ \
+          '%clean\n%files\n%doc\n%changelog\n'
+    with tempfile.NamedTemporaryFile('w+') as tmp:
+        tmp.write(src)
+        tmp.flush()
+        out = subprocess.check_output(['rpmspec', '-P', tmp.name]).decode('utf-8')
+
+    m = re.search(beg+'(.+?)'+end, out, flags=re.M|re.DOTALL)
+    return m.group(1)
+
+class IfExpr:
+    def __init__(self, cond, arch=None):
+        self.cond = cond
+        self.arch = arch
+        self.is_in_else = False
+        self.then_lines = []
+        self.else_lines = []
+        self.current = self.then_lines
+
+    def set_else(self):
+        self.current = self.else_lines
+
+    def append(self, s):
+        self.current.append(s)
+
+def print_res(x,n=0):
+    if isinstance(x, IfExpr):
+        print((".."*n)+x.cond)
+        for y in x.then_lines:
+            print_res(y, n+1)
+        if len(x.else_lines) > 0:
+            print((".."*n)+"%else")
+            for y in x.else_lines:
+                print_res(y, n+1)
+        print((".."*n)+"%endif")
+    elif isinstance(x, list):
+        for y in x:
+            print_res(y, n)
+    else:
+        print((".."*n)+x)
+
+def parse(fn):
+    last = []
+    stack = [last]
+
+    for l in open(fn).readlines():
+        l = l[:-1]
+        if IF_RX.match(l):
+            last = IfExpr(l)
+            stack.append(last)
+        elif IFARCH_RX.match(l):
+            last = IfExpr(l, arch=True)
+            stack.append(last)
+        elif IFNARCH_RX.match(l):
+            last = IfExpr(l, arch=False)
+            stack.append(last)
+        elif ELSE_RX.match(l):
+            last.set_else()
+        elif ENDIF_RX.match(l):
+            stack.pop()
+            p = stack[-1]
+            p.append(last)
+            last = p
+        else:
+            last.append(l)
+
+    print_res(last)
+
 
 ######################################################################
 #                          Utils
