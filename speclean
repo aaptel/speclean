@@ -31,7 +31,53 @@ def dump_parsing(s, env={}):
     print()
 
 
+def cmp_expand(s):
+    read = yacc.parse(s)
+    if not read:
+        print("failed to parse %s"%s)
+        return
+    ev = read.evaluate(env={'def':42, 'undef':None})
+    res = expr_to_bool_or_none(ev)
+    rpmres = expand_with_rpmspec('%define def 42\n'+s)
+
+    if res is None:
+        print("cant fully expand %s => %s"%(read.to_str(), ev.to_str()))
+    else:
+        res = str(ev)
+        op = '==' if rpmres == res else '!='
+        print('%s => rpm<%s> %s <%s>'%(s, rpmres, op, res))
+
+def dump_rpmspec(s):
+    print("<%s> expands to <%s>"%(s, expand_with_rpmspec(s)))
+
+def dump_rpmspec_test(s):
+    res = expand_with_rpmspec("%if "+s+"\ntrue\n%else\nfalse\n%endif")
+    print("<%s> is %s"%(s, res =='true'))
+
 def main():
+    cmp_expand("%{?def:1}")
+    cmp_expand("%{?def:2}")
+    cmp_expand("%{def:2}")
+    cmp_expand("%{?!def}")
+    cmp_expand("%{?!def:2}")
+
+    cmp_expand("%{?undef:1}")
+    cmp_expand("%{?undef:2}")
+    cmp_expand("%{undef:2}")
+    cmp_expand("%{?!undef}")
+    cmp_expand("%{?!undef:2}")
+
+    dump_rpmspec('%define val 0\n0%{?val:1}')
+    dump_rpmspec('0%{?version:1}')
+    dump_rpmspec('0%{?version}')
+    dump_rpmspec('0%{?undef}')
+    dump_rpmspec('0%{?undef:1}')
+    dump_rpmspec('0%{?!version}')
+    dump_rpmspec('0%{?!undef}')
+    dump_rpmspec('0%{?!version:1}')
+    dump_rpmspec('0%{?!undef:1}')
+    dump_rpmspec('0%{undef:1}')
+    dump_rpmspec('0%{version:1}')
     #dump_tokens(r'''1 + 2 * 3''')
     #dump_tokens(r'''abc_ "foo \" bar"''')
     #dump_tokens(r'''1!=2 a || b && c''')
@@ -47,7 +93,13 @@ def main():
     dump_parsing('''%s == aaa && 5 <= 1*(%v+1) && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
     #dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
     #print("<%s>"%expand_with_rpmspec('(%xyz) (%?xyz) (%?name) (%{?!xyz:%{?!abc:repl}})'))
-    print("<%s>"%expand_with_rpmspec('%define aaa %(ls)\n%aaa'))
+    dump_rpmspec('%abc')
+    dump_rpmspec('%{abc}')
+    dump_rpmspec('a%bcdf')
+    dump_rpmspec('a%%bcdf')
+    dump_rpmspec('a%%%bcdf')
+    dump_rpmspec('a%%%%bcdf')
+    dump_rpmspec_test(r'''%(echo '"\\abc1"') == "abc1"''')
 
 
 ######################################################################
@@ -59,7 +111,7 @@ from ply import lex
 tokens = (
     'NUM', 'PLUS', 'MINUS', 'MUL', 'DIV', 'IDENT', 'QSTRING',
     'LE', 'LT', 'EQ', 'NEQ', 'GE', 'GT', 'AND', 'OR', 'NOT',
-    'LPAR', 'RPAR', 'LBRA', 'RBRA', 'PERCENT',
+    'LPAR', 'RPAR', 'LBRA', 'RBRA', 'PERCENT', 'QMARK', 'COLON',
 )
 
 t_PLUS    = r'\+'
@@ -83,6 +135,8 @@ t_PERCENT = r'%'
 t_NUM     = r'\d+'
 t_IDENT   = r'[a-zA-Z_][a-zA-Z0-9_]*'
 t_QSTRING = r'"(?:[^"\\]|\\.)*"'
+t_QMARK   = r'\?'
+t_COLON   = r':'
 
 BINOP_VAL_TO_TOK = {
     r'+' : t_PLUS,
@@ -287,21 +341,74 @@ class RangedValueExpr(ValueExpr):
                             int_range_to_str(self.hi))
 
 class VarExpr(Expr):
-    def __init__(self, name, vrange=None):
+    def __init__(self, name, vrange=None, braced=True, test=None, expand=None, zero_prefix=False):
         #print("VarExpr=<%s>"%e)
         self.name = name
         self.vrange = vrange
+        self.test = test
+        self.expand = expand
+        self.braced = braced
+        self.zero_prefix = zero_prefix
 
     def evaluate(self, env):
-        if self.name in env:
-            r = env[self.name]
-            if isinstance(r, RangedValueExpr):
-                self.vrange = r
-                return self
-            else: return r
+        if self.name not in env:
+            return self
+
+        v = env[self.name]
+
+        if not (v is None or isinstance(v, (RangedValueExpr, int, str))):
+            raise Exception("unsupported value type for var"%self.name)
+
+        expand_val = None
+        if self.expand:
+            expand_val = int(self.expand) if re.match(t_NUM, self.expand) else self.expand
+
+        if self.test:
+            if self.test == '?':
+                if v is not None:
+                    # var known to be defined to something
+                    r = expand_val or v
+                else:
+                    # var is known to be undefined
+                    r = 0 if self.zero_prefix else ''
+            elif self.test == '?!':
+                if v is not None:
+                    # var known to be defined to something
+                    r = 0 if self.zero_prefix else ''
+                else:
+                    # var known to be undefined
+                    if expand_val:
+                        r = expand_val
+                    else:
+                        r = 0 if self.zero_prefix else ''
+        else:
+            # no ? or ?! tests
+            if v is None:
+                r = self.to_str(env)
+                print("WARNING: %s will expand to \"%s\", which is very likely not what you want"%(r, r))
+            else:
+                r = v
+
+        if isinstance(v, RangedValueExpr):
+            self.vrange = v
+            r = self
+
+        if r == '':
+            print("WARNING: var %s will expand to nothing, add zero prefix"%self.name)
+
+        return r
 
     def to_str(self, env=None):
-        return "%"+self.name
+        r = self.name
+        if self.test:
+            r = self.test+r
+        if self.expand:
+            r = r+":"+self.expand
+        if self.braced:
+            r = "%{"+r+"}"
+        if self.zero_prefix:
+            r = "0"+r
+        return r
 
 class NumExpr(Expr):
     def __init__(self, n):
@@ -443,19 +550,48 @@ def p_expr_group(p):
     'expr : LPAR expr RPAR'
     p[0] = p[2]
 
-def p_expr_var(p):
-    'expr : PERCENT IDENT'
-    p[0] = VarExpr(p[2])
+def p_var_bare(p):
+    'var : PERCENT IDENT'
+    p[0] = VarExpr(p[2], braced=False)
 
-def p_expr_var_braced(p):
-    'expr : PERCENT LBRA IDENT RBRA'
-    p[0] = VarExpr(p[3])
+def p_var_braced(p):
+    'var : PERCENT LBRA IDENT var_expand RBRA'
+    # accept var_expand here because rpmspec does, but it doenst make sense...
+    p[0] = VarExpr(p[3], expand=p[4])
+
+def p_empty(p):
+    'empty :'
+    pass
+
+def p_var_expand_val(p):
+    '''var_expand : COLON NUM
+                  | COLON IDENT
+                  | empty'''
+    if len(p) == 3:
+        p[0] = p[2]
+    else:
+        p[0] = None
+
+
+def p_var_qmark(p):
+    'var : PERCENT LBRA QMARK IDENT var_expand RBRA'
+    p[0] = VarExpr(p[4], test='?', expand=p[5])
+
+def p_var_qmark_not(p):
+    'var : PERCENT LBRA QMARK NOT IDENT var_expand RBRA'
+    p[0] = VarExpr(p[5], test='?!', expand=p[6])
 
 def p_expr_zvar(p):
-    'expr : NUM PERCENT IDENT'
+    'expr : NUM var'
     if p[1] != '0':
         raise Exception("cannot use <num>%var syntax when num is non-zero")
-    p[0] = VarExpr(p[3])
+    v = p[2]
+    v.zero_prefix = True
+    p[0] = v
+
+def p_expr_var(p):
+    'expr : var'
+    p[0] = p[1]
 
 def p_expr_uminus(p):
     'expr : MINUS expr %prec UMINUS'
@@ -506,7 +642,7 @@ def expand_with_rpmspec(s):
         tmp.flush()
         out = subprocess.check_output(['rpmspec', '-P', tmp.name]).decode('utf-8')
 
-    m = re.search(beg+'(.+?)'+end, out, flags=re.M|re.DOTALL)
+    m = re.search(beg+'(.*?)'+end, out, flags=re.M|re.DOTALL)
     return m.group(1)
 
 class IfExpr:
