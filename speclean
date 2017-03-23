@@ -55,6 +55,8 @@ def dump_rpmspec_test(s):
     print("<%s> is %s"%(s, res =='true'))
 
 def main():
+    clean_spec("samba.spec")
+    exit(0)
     cmp_expand("%{?def:1}")
     cmp_expand("%{?def:2}")
     cmp_expand("%{def:2}")
@@ -195,7 +197,7 @@ def to_str_wrapper(v, env={}):
     if isinstance(v, int):
         return "%d"%v
     elif isinstance(v, str):
-        return v
+        return '"'+v+'"'
     else:
         return v.to_str(env)
 
@@ -341,14 +343,16 @@ class RangedValueExpr(ValueExpr):
                             int_range_to_str(self.hi))
 
 class VarExpr(Expr):
-    def __init__(self, name, vrange=None, braced=True, test=None, expand=None, zero_prefix=False):
-        #print("VarExpr=<%s>"%e)
+    def __init__(self, name, vrange=None, braced=True, test=None, expand=None, zero_prefix=False, paren=False, quoted=False):
+        #print("VarExpr=<%s>"%name)
         self.name = name
         self.vrange = vrange
         self.test = test
         self.expand = expand
         self.braced = braced
         self.zero_prefix = zero_prefix
+        self.paren = paren
+        self.quoted = quoted
 
     def evaluate(self, env):
         if self.name not in env:
@@ -404,41 +408,52 @@ class VarExpr(Expr):
             r = self.test+r
         if self.expand:
             r = r+":"+self.expand
+
         if self.braced:
             r = "%{"+r+"}"
+        else:
+            r = "%"+r
+
         if self.zero_prefix:
             r = "0"+r
-        return r
+
+        if self.quoted:
+            r = '"'+r+'"'
+
+        return wrap_paren(r, self.paren)
 
 class NumExpr(Expr):
-    def __init__(self, n):
+    def __init__(self, n, paren=False):
         #print("NumExpr=<%d>"%n)
         self.n = n
+        self.paren = paren
 
     def evaluate(self, env):
         return self.n
 
     def to_str(self, env=None):
-        return "%d"%self.n
+        return wrap_paren("%d"%self.n, self.paren)
 
 class StrExpr(Expr):
-    def __init__(self, s, quoted=True):
+    def __init__(self, s, quoted=True, paren=False):
         if quoted:
             s = decode_quoted_str(s)
         #print("StrExpr=<%s>"%s)
         self.s = s
+        self.paren = paren
 
     def evaluate(self, env):
         return self.s
 
     def to_str(self, env=None):
-        return '"%s"'%self.s
+        return wrap_paren('"%s"'%self.s, self.paren)
 
 class NotExpr(Expr):
-    def __init__(self, e, vrange=None):
+    def __init__(self, e, vrange=None, paren=False):
         #print("NotExpr(...)"%e)
         self.e = e
         self.vrange = vrange
+        self.paren = paren
 
     def evaluate(self, env):
         e = self.e.evaluate(env)
@@ -447,16 +462,17 @@ class NotExpr(Expr):
         elif expr_is_false(e):
             return 1
         else:
-            return e
+            return NotExpr(e, paren=self.paren)
 
     def to_str(self, env=None):
-        return "!("+to_str_wrapper(self.e, env)+")"
+        return "! "+wrap_paren(to_str_wrapper(self.e, env), self.paren)
 
 class UMinusExpr(Expr):
-    def __init__(self, e, vrange=None):
+    def __init__(self, e, vrange=None, paren=False):
         #print("UMinusExpr(...)")
         self.e = e
         self.vrange = vrange
+        self.paren = paren
 
     def evaluate(self, env):
         e = self.e.evaluate(env)
@@ -466,18 +482,19 @@ class UMinusExpr(Expr):
             r = expr_range(self.e)
             if r:
                 r = RangedValueExpr(-r.hi, -r.lo)
-            return UMinusExpr(e, vrange=r)
+            return UMinusExpr(e, vrange=r, paren=self.paren)
 
     def to_str(self, env=None):
-        return "-("+to_str_wrapper(self.e,env)+")"
+        return "-"+wrap_paren(to_str_wrapper(self.e,env), self.paren)
 
 class BinOpExpr(Expr):
-    def __init__(self, a, op, b, vrange=None):
+    def __init__(self, a, op, b, vrange=None, paren=False):
         #print("BinOpExpr(...,", op," ...")
         self.a = a
         self.b = b
         self.op = op
         self.vrange = vrange
+        self.paren = paren
 
     def evaluate(self, env):
         A = self.a.evaluate(env)
@@ -486,6 +503,7 @@ class BinOpExpr(Expr):
         if self.op in (t_PLUS, t_MINUS, t_MUL, t_DIV, t_GT, t_GE, t_LE, t_LT, t_EQ, t_NEQ):
             r = bin_op_wrapper(A, self.op, B)
             if r is not None:
+                if isinstance(r, Expr): r.paren = self.paren
                 return r
 
         elif self.op == t_AND:
@@ -496,8 +514,10 @@ class BinOpExpr(Expr):
             if expr_is_true(A) and expr_is_true(B):
                 return 1
             if expr_is_true(A):
+                if isinstance(B, Expr): B.paren = self.paren
                 return B
             if expr_is_true(B):
+                if isinstance(A, Expr): A.paren = self.paren
                 return A
 
         elif self.op == t_OR:
@@ -508,14 +528,18 @@ class BinOpExpr(Expr):
             if expr_is_false(A) and expr_is_false(B):
                 return 0
             if expr_is_false(A):
+                if isinstance(B, Expr): B.paren = self.paren
                 return B
             if expr_is_false(B):
+                if isinstance(A, Expr): A.paren = self.paren
                 return A
 
-        return BinOpExpr(A, self.op, B)
+        return BinOpExpr(A, self.op, B, paren=self.paren)
 
     def to_str(self, env=None):
-        return "(%s %s %s)"%(to_str_wrapper(self.a,env), BINOP_TOK_TO_VAL[self.op], to_str_wrapper(self.b,env))
+        return wrap_paren("%s %s %s"%(to_str_wrapper(self.a,env),
+                                      BINOP_TOK_TO_VAL[self.op], to_str_wrapper(self.b,env)),
+                          self.paren)
 
 
 ######################################################################
@@ -538,9 +562,17 @@ def p_expr_num(p):
     'expr : NUM'
     p[0] = NumExpr(int(p[1]))
 
-def p_expr_qstr(p):
+def p_expr_qstr_qvar(p):
     'expr : QSTRING'
-    p[0] = StrExpr(p[1])
+    s = p[1]
+    m = QUOTED_VAR_RX.match(s)
+    if m:
+        name = m.group(1) or m.group(2)
+        p[0] = VarExpr(name, quoted=True, braced=True)
+    else:
+        if '%' in p[1]:
+            raise Exception("cannot handle complex spec expression in strings")
+        p[0] = StrExpr(p[1])
 
 def p_expr_bare_str(p):
     'expr : IDENT'
@@ -548,7 +580,9 @@ def p_expr_bare_str(p):
 
 def p_expr_group(p):
     'expr : LPAR expr RPAR'
-    p[0] = p[2]
+    v = p[2]
+    v.paren = True
+    p[0] = v
 
 def p_var_bare(p):
     'var : PERCENT IDENT'
@@ -625,11 +659,12 @@ import re
 import subprocess
 import tempfile
 
-IF_RX = re.compile(r"^\s*%if ")
-IFARCH_RX = re.compile(r"^\s*%ifarch ")
-IFNARCH_RX = re.compile(r"^\s*%ifnarch ")
+IF_RX = re.compile(r"^\s*%if (.*)")
+IFARCH_RX = re.compile(r"^\s*%ifarch (.*)")
+IFNARCH_RX = re.compile(r"^\s*%ifnarch (.*)")
 ELSE_RX = re.compile(r"^\s*%else")
 ENDIF_RX = re.compile(r"^\s*%endif")
+QUOTED_VAR_RX = re.compile(r'^"%(?:\{('+t_IDENT+r')\}|('+t_IDENT+r'))"$')
 
 def expand_with_rpmspec(s):
     beg = '#----xxxx-BEG-xxxx----\n'
@@ -660,23 +695,26 @@ class IfExpr:
     def append(self, s):
         self.current.append(s)
 
-def print_res(x,n=0):
+def print_spec(x, out, n=0):
+    prefix=""
     if isinstance(x, IfExpr):
-        print((".."*n)+x.cond)
+        if x.cond != True:
+            out.write((prefix*n)+x.cond+"\n")
         for y in x.then_lines:
-            print_res(y, n+1)
+            print_spec(y, out, n+1)
         if len(x.else_lines) > 0:
-            print((".."*n)+"%else")
+            out.write((prefix*n)+"%else\n")
             for y in x.else_lines:
-                print_res(y, n+1)
-        print((".."*n)+"%endif")
+                print_spec(y, out, n+1)
+        if x.cond != True:
+            out.write((prefix*n)+"%endif\n")
     elif isinstance(x, list):
         for y in x:
-            print_res(y, n)
+            print_spec(y, out, n)
     else:
-        print((".."*n)+x)
+        out.write((prefix*n)+x+"\n")
 
-def parse(fn):
+def parse_spec(fn):
     last = []
     stack = [last]
 
@@ -701,8 +739,57 @@ def parse(fn):
         else:
             last.append(l)
 
-    print_res(last)
+    return last
 
+def _clean_cond(cond, env):
+    m=IF_RX.match(cond)
+    if not m:
+        return None
+    cond = m.group(1)
+    read = None
+    try:
+        read = yacc.parse(cond)
+    except Exception:
+        pass
+    if not read:
+        print("ERROR: cant parse cond <%s>, skipping"%cond)
+        return None
+    ev = read.evaluate(env)
+    return ev
+
+def _clean_spec_rec(x, env):
+    if isinstance(x, IfExpr):
+        e = _clean_cond(x.cond, env)
+        etype = e and expr_to_bool_or_none(e)
+        if e is None:
+            pass
+        elif etype is None:
+            x.cond = "%if "+e.to_str(env)
+        else:
+            x.cond = True
+            if etype == True:
+                x.else_lines = []
+            else:
+                x.then_lines = x.else_lines
+                x.else_lines = []
+
+        for y in x.then_lines:
+            _clean_spec_rec(y, env)
+
+        for y in x.else_lines:
+            _clean_spec_rec(y, env)
+
+    elif isinstance(x, list):
+        for y in x:
+            _clean_spec_rec(y, env)
+
+
+def clean_spec(fn, env={}):
+    r = parse_spec(fn)
+    with tempfile.NamedTemporaryFile("w+") as tmp:
+        _clean_spec_rec(r, env)
+        print_spec(r, tmp)
+        subprocess.call(['diff', '-u', fn, tmp.name])
 
 ######################################################################
 #                          Utils
@@ -725,6 +812,11 @@ def decode_quoted_str(s):
         return codecs.decode(match.group(0), 'unicode-escape')
 
     return ESCAPE_SEQUENCE_RE.sub(decode_match, s[1:-1])
+
+def wrap_paren(s, use_paren=None):
+    if use_paren:
+        return "("+s+")"
+    return s
 
 if __name__ == '__main__':
     main()
