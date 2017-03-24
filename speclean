@@ -32,6 +32,9 @@ import re
 import subprocess
 import sys
 from decimal import Decimal
+from ply import lex
+from ply import yacc
+
 
 def main():
     ap = argparse.ArgumentParser(description='Simplify spec files by assuming variables will have certain values')
@@ -86,8 +89,6 @@ def main():
 ######################################################################
 #                          Lexical analysis
 ######################################################################
-
-from ply import lex
 
 tokens = (
     'NUM', 'PLUS', 'MINUS', 'MUL', 'DIV', 'IDENT', 'QSTRING',
@@ -321,7 +322,8 @@ class RangedValueExpr(ValueExpr):
                             int_range_to_str(self.hi))
 
 class VarExpr(Expr):
-    def __init__(self, name, vrange=None, braced=True, test=None, expand=None, zero_prefix=False, paren=False, quoted=False):
+    def __init__(self, name, vrange=None, braced=True, test=None,
+                 expand=None, zero_prefix=False, paren=False, quoted=False):
         #print("VarExpr=<%s>"%name)
         self.name = name
         self.vrange = vrange
@@ -523,8 +525,6 @@ class BinOpExpr(Expr):
 ######################################################################
 #                         Parsing
 ######################################################################
-
-from ply import yacc
 
 precedence = (
     ('left', 'AND', 'OR'),
@@ -768,7 +768,8 @@ def clean_spec(input_fn, env={}):
         warn("with no var assumption")
     else:
         for k,v in env.items():
-            warn("assuming", "%20.20s"%("%%{%s}"%k), "is", to_str_wrapper(v) if v is not None else "UNDEF")
+            warn("assuming", "%20.20s"%("%%{%s}"%k),
+                 "is", to_str_wrapper(v) if v is not None else "UNDEF")
         warn()
 
     spec_input = open(input_fn).read()
