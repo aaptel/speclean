@@ -1,115 +1,61 @@
 #!/usr/bin/env python3
-
-######################################################################
-#                        Main/testing
-######################################################################
-
-def dump_tokens(s):
-    print("LEXING <%s>"%s)
-    lex.input(s)
-    while True:
-        t = lex.token()
-        if not t:
-            break
-        print("> %-10.10s <%s>"%(t.type, t.value))
-    print()
-
-def dump_parsing(s, env={}):
-    #dump_tokens(s)
-    print("PARSING %s"%s)
-    if env:
-        for k,v in env.items():
-            print("  assuming %%%s = %s"%(k, to_str_wrapper(v)))
-    r = yacc.parse(s)
-    print("=> %s"%r.to_str())
-    ev = r.evaluate(env)
-    res = expr_to_bool_or_none(ev)
-    if res is None:
-        print("=>", ev.to_str())
-    else:
-        print("=>", ev, "(decidable!)")
-    print()
-
-
-def cmp_expand(s):
-    read = yacc.parse(s)
-    if not read:
-        print("failed to parse %s"%s)
-        return
-    ev = read.evaluate(env={'def':42, 'undef':None})
-    res = expr_to_bool_or_none(ev)
-    rpmres = expand_with_rpmspec('%define def 42\n'+s)
-
-    if res is None:
-        print("cant fully expand %s => %s"%(read.to_str(), ev.to_str()))
-    else:
-        res = str(ev)
-        op = '==' if rpmres == res else '!='
-        print('%s => rpm<%s> %s <%s>'%(s, rpmres, op, res))
-
-def dump_rpmspec(s):
-    print("<%s> expands to <%s>"%(s, expand_with_rpmspec(s)))
-
-def dump_rpmspec_test(s):
-    res = expand_with_rpmspec("%if "+s+"\ntrue\n%else\nfalse\n%endif")
-    print("<%s> is %s"%(s, res =='true'))
+import argparse
+import codecs
+import difflib
+import io
+import re
+import subprocess
+import sys
+from decimal import Decimal
 
 def main():
-    clean_spec("samba.spec",
-               env={
-                   "_vendor": "suse",
-                   "suse_version": RangedValueExpr(1100, HI_INF),
-                   "fedora_version": None,
-                   "mandriva_version": None,
-                   "centos_version": None,
-                   "rhel_version": None,
-                   "ul_version": None,
-               })
+    ap = argparse.ArgumentParser(description='Simplify spec files by assuming variables will have certain values')
+    ap.add_argument('-u', '--undef', dest='vars_undef', action='append', metavar='VAR', default=[],
+                    help='assume VAR to be undefined')
+    ap.add_argument('-s', '--string', dest='vars_str', action='append', metavar='VAR=STRING', default=[],
+                    help='assume VAR to defined to the string')
+    ap.add_argument('-i', '--int', dest='vars_int', action='append', metavar='VAR=INT', default=[],
+                    help='assume VAR to defined to an integer')
+    ap.add_argument('-r', '--range', dest='vars_range', action='append', metavar='VAR=MIN,MAX', default=[],
+                    help='assume VAR to be defined to an integer in the interval MIN,MAX (included). You can use "inf" or "-inf".')
+    ap.add_argument('-e', '--eval', dest='test_eval', metavar='TESTEXPR',
+                    help='try to simplify condition TESTEXPR instead of processing a specfile')
+    ap.add_argument('spec', metavar='SPECFILE', nargs='?')
+    args = ap.parse_args()
+
+    env = {}
+    for v in args.vars_undef:
+        env[v] = None
+    for vdef in args.vars_str:
+        var, val = split_var_arg(vdef, 'str')
+        env[var] = val
+    for vdef in args.vars_int:
+        var, val = split_var_arg(vdef, 'int')
+        env[var] = val
+    for vdef in args.vars_range:
+        var, vmin, vmax = split_var_arg(vdef, 'range')
+        env[var] = RangedValueExpr(vmin, vmax)
+
+    if args.test_eval:
+        dump_parsing(args.test_eval, env)
+    elif args.spec:
+        clean_spec(args.spec, env)
+    else:
+        ap.print_help()
+        exit(1)
+
+    # clean_spec("samba.spec",
+    #            env={
+    #                "_vendor": "suse",
+    #                "suse_version": RangedValueExpr(1100, HI_INF),
+    #                "fedora_version": None,
+    #                "mandriva_version": None,
+    #                "centos_version": None,
+    #                "rhel_version": None,
+    #                "ul_version": None,
+    #            })
+
     exit(0)
-    dump_rpmspec('%if 0\nA\n%else 0 %version iolsdjfoighfj qsjdoqisj (1)\nB\n%else\nC\n%endif\n')
-    cmp_expand("%{?def:1}")
-    cmp_expand("%{?def:2}")
-    cmp_expand("%{def:2}")
-    cmp_expand("%{?!def}")
-    cmp_expand("%{?!def:2}")
-    cmp_expand("%{?undef:1}")
-    cmp_expand("%{?undef:2}")
-    cmp_expand("%{undef:2}")
-    cmp_expand("%{?!undef}")
-    cmp_expand("%{?!undef:2}")
-    dump_rpmspec('%define val 0\n0%{?val:1}')
-    dump_rpmspec('0%{?version:1}')
-    dump_rpmspec('0%{?version}')
-    dump_rpmspec('0%{?undef}')
-    dump_rpmspec('0%{?undef:1}')
-    dump_rpmspec('0%{?!version}')
-    dump_rpmspec('0%{?!undef}')
-    dump_rpmspec('0%{?!version:1}')
-    dump_rpmspec('0%{?!undef:1}')
-    dump_rpmspec('0%{undef:1}')
-    dump_rpmspec('0%{version:1}')
-    #dump_tokens(r'''1 + 2 * 3''')
-    #dump_tokens(r'''abc_ "foo \" bar"''')
-    #dump_tokens(r'''1!=2 a || b && c''')
-    #dump_tokens(r'''0 %foo < 4''')
-    #dump_tokens(r'''0%foo < 4''')
-    #dump_parsing("1+1+5+8*2+1*4")
-    #dump_parsing("%foo+1+1*3+1+1", env={'foo':1})
-    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
-    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
-    #dump_parsing("%bar<10 || %foo+2>0", env={'foo':RangedValueExpr(-1, HI_INF)})
-    #dump_parsing("%v == 1", env={'v': RangedValueExpr(0,10)})
-    dump_parsing('''%s == aaa && 5 <= %v+1 && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
-    dump_parsing('''%s == aaa && 5 <= 1*(%v+1) && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
-    #dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
-    #print("<%s>"%expand_with_rpmspec('(%xyz) (%?xyz) (%?name) (%{?!xyz:%{?!abc:repl}})'))
-    dump_rpmspec('%abc')
-    dump_rpmspec('%{abc}')
-    dump_rpmspec('a%bcdf')
-    dump_rpmspec('a%%bcdf')
-    dump_rpmspec('a%%%bcdf')
-    dump_rpmspec('a%%%%bcdf')
-    dump_rpmspec_test(r'''%(echo '"\\abc1"') == "abc1"''')
 
 
 ######################################################################
@@ -171,7 +117,7 @@ def t_newline(t):
 t_ignore = ' \t'
 
 def t_error(t):
-    print("illegal char <%s>"%t.value)
+    raise Exception("illegal char <%s>"%t.value)
     t.lexer.skip(1)
 
 lex.lex()
@@ -252,7 +198,7 @@ def bin_op_wrapper(a, op, b):
     elif isinstance(a, RangedValueExpr) and isinstance(b, RangedValueExpr):
         if op == t_PLUS:
             return RangedValueExpr(a.lo+b.lo, a.hi+b.hi)
-        print("XXX: not smart about ranged-ranged binary operations yet!")
+        warn("XXX: not smart about ranged-ranged binary operations yet!")
         return None
     elif ar and isinstance(b, int):
         if op in (t_PLUS, t_MINUS):
@@ -328,7 +274,6 @@ def wrap_type(v):
 class ValueExpr(Expr):
     pass
 
-from decimal import Decimal
 LO_INF = Decimal("-infinity")
 HI_INF = Decimal("infinity")
 
@@ -397,7 +342,7 @@ class VarExpr(Expr):
             # no ? or ?! tests
             if v is None:
                 r = self.to_str(env)
-                print("WARNING: %s will expand to \"%s\", which is very likely not what you want"%(r, r))
+                warn("WARNING: %s will expand to \"%s\", which is very likely not what you want"%(r, r))
             else:
                 r = v
 
@@ -406,7 +351,7 @@ class VarExpr(Expr):
             r = self
 
         if r == '':
-            print("WARNING: var %s will expand to nothing, add zero prefix"%self.name)
+            warn("WARNING: var %s will expand to nothing, add zero prefix"%self.name)
 
         return r
 
@@ -658,14 +603,14 @@ def p_expr_binop(p):
             | expr DIV   expr'''
     p[0] = BinOpExpr(p[1], BINOP_VAL_TO_TOK[p[2]], p[3])
 
+def p_error(p):
+    raise Exception("parse error %s"%p)
+
 yacc.yacc()
 
 ######################################################################
 #                      Spec file things
 ######################################################################
-import re
-import subprocess
-import tempfile
 
 IF_RX = re.compile(r"^\s*%if (.*)")
 IFARCH_RX = re.compile(r"^\s*%ifarch (.*)")
@@ -675,6 +620,7 @@ ENDIF_RX = re.compile(r"^\s*%endif")
 QUOTED_VAR_RX = re.compile(r'^"%(?:\{('+t_IDENT+r')\}|('+t_IDENT+r'))"$')
 
 def expand_with_rpmspec(s):
+    """Expand string with rpmspec -P and return expansion"""
     beg = '#----xxxx-BEG-xxxx----\n'
     end = '\n#----xxxx-END-xxxx----\n'
     src = 'Summary: test summary\nName: test\n\nVersion: 1.2\nRelease: 1\n'+ \
@@ -722,12 +668,11 @@ def print_spec(x, out, n=0):
     else:
         out.write((prefix*n)+x+"\n")
 
-def parse_spec(fn):
+def parse_spec(input_text):
     last = []
     stack = [last]
 
-    for l in open(fn):
-        l = l[:-1]
+    for l in input_text.splitlines():
         if IFARCH_RX.match(l):
             last = IfExpr(l, arch=True)
             stack.append(last)
@@ -760,7 +705,7 @@ def _clean_cond(cond, env):
     except Exception:
         pass
     if not read:
-        print("ERROR: cant parse cond <%s>, skipping"%cond)
+        warn("ERROR: cant parse cond <%s>, skipping"%cond)
         return None
     ev = read.evaluate(env)
     return ev
@@ -792,31 +737,134 @@ def _clean_spec_rec(x, env):
             _clean_spec_rec(y, env)
 
 
-def clean_spec(fn, env={}):
-    print("cleaning %s..."%fn)
-    for k,v in env.items():
-        print("assuming", "%20.20s"%("%%{%s}"%k), "is", to_str_wrapper(v) if v is not None else "UNDEF")
+def clean_spec(input_fn, env={}):
+    warn("cleaning %s..."%input_fn)
+    if len(env.items()) == 0:
+        warn("with no var assumption")
+    else:
+        for k,v in env.items():
+            warn("assuming", "%20.20s"%("%%{%s}"%k), "is", to_str_wrapper(v) if v is not None else "UNDEF")
+        warn()
+
+    spec_input = open(input_fn).read()
+    spec = parse_spec(spec_input)
+    _clean_spec_rec(spec, env)
+    tmp = io.StringIO()
+    print_spec(spec, tmp)
+    spec_output = tmp.getvalue()
+    diff = difflib.unified_diff(spec_input.splitlines(keepends=True),
+                                spec_output.splitlines(keepends=True),
+                                fromfile=input_fn,
+                                tofile=input_fn+".new")
+    diff = list(diff)
+    if len(diff) == 0:
+        warn("nothing to simplify")
+    else:
+        sys.stdout.writelines(diff)
+
+######################################################################
+#                       Testing & debugging
+######################################################################
+
+def test():
+    dump_rpmspec('%if 0\nA\n%else 0 %version iolsdjfoighfj qsjdoqisj (1)\nB\n%else\nC\n%endif\n')
+    cmp_expand("%{?def:1}")
+    cmp_expand("%{?def:2}")
+    cmp_expand("%{def:2}")
+    cmp_expand("%{?!def}")
+    cmp_expand("%{?!def:2}")
+    cmp_expand("%{?undef:1}")
+    cmp_expand("%{?undef:2}")
+    cmp_expand("%{undef:2}")
+    cmp_expand("%{?!undef}")
+    cmp_expand("%{?!undef:2}")
+    dump_rpmspec('%define val 0\n0%{?val:1}')
+    dump_rpmspec('0%{?version:1}')
+    dump_rpmspec('0%{?version}')
+    dump_rpmspec('0%{?undef}')
+    dump_rpmspec('0%{?undef:1}')
+    dump_rpmspec('0%{?!version}')
+    dump_rpmspec('0%{?!undef}')
+    dump_rpmspec('0%{?!version:1}')
+    dump_rpmspec('0%{?!undef:1}')
+    dump_rpmspec('0%{undef:1}')
+    dump_rpmspec('0%{version:1}')
+    #dump_tokens(r'''1 + 2 * 3''')
+    #dump_tokens(r'''abc_ "foo \" bar"''')
+    #dump_tokens(r'''1!=2 a || b && c''')
+    #dump_tokens(r'''0 %foo < 4''')
+    #dump_tokens(r'''0%foo < 4''')
+    #dump_parsing("1+1+5+8*2+1*4")
+    #dump_parsing("%foo+1+1*3+1+1", env={'foo':1})
+    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
+    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
+    #dump_parsing("%bar<10 || %foo+2>0", env={'foo':RangedValueExpr(-1, HI_INF)})
+    #dump_parsing("%v == 1", env={'v': RangedValueExpr(0,10)})
+    dump_parsing('''%s == aaa && 5 <= %v+1 && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
+    dump_parsing('''%s == aaa && 5 <= 1*(%v+1) && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
+    #dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
+    #print("<%s>"%expand_with_rpmspec('(%xyz) (%?xyz) (%?name) (%{?!xyz:%{?!abc:repl}})'))
+    dump_rpmspec('%abc')
+    dump_rpmspec('%{abc}')
+    dump_rpmspec('a%bcdf')
+    dump_rpmspec('a%%bcdf')
+    dump_rpmspec('a%%%bcdf')
+    dump_rpmspec('a%%%%bcdf')
+    dump_rpmspec_test(r'''%(echo '"\\abc1"') == "abc1"''')
+
+
+def dump_tokens(s):
+    print("LEXING <%s>"%s)
+    lex.input(s)
+    while True:
+        t = lex.token()
+        if not t:
+            break
+        print("> %-10.10s <%s>"%(t.type, t.value))
     print()
 
-    r = parse_spec(fn)
-    with tempfile.NamedTemporaryFile("w+") as tmp:
-        _clean_spec_rec(r, env)
-        print_spec(r, tmp)
-        tmp.flush()
-        try:
-            out = subprocess.check_output(['diff', '-u', fn, tmp.name])
-        except subprocess.CalledProcessError as e:
-            out = e.output
-        finally:
-            out = out.decode('utf-8')
-    print(out)
+def dump_parsing(s, env={}):
+    #dump_tokens(s)
+    print("PARSING %s"%s)
+    if env:
+        for k,v in env.items():
+            print("  assuming %%%s = %s"%(k, to_str_wrapper(v)))
+    r = yacc.parse(s)
+    print("=> %s"%r.to_str())
+    ev = r.evaluate(env)
+    res = expr_to_bool_or_none(ev)
+    if res is None:
+        print("=>", ev.to_str())
+    else:
+        print("=>", ev, "(decidable!)")
+    print()
+
+def cmp_expand(s):
+    read = yacc.parse(s)
+    if not read:
+        print("failed to parse %s"%s)
+        return
+    ev = read.evaluate(env={'def':42, 'undef':None})
+    res = expr_to_bool_or_none(ev)
+    rpmres = expand_with_rpmspec('%define def 42\n'+s)
+
+    if res is None:
+        print("cant fully expand %s => %s"%(read.to_str(), ev.to_str()))
+    else:
+        res = str(ev)
+        op = '==' if rpmres == res else '!='
+        print('%s => rpm<%s> %s <%s>'%(s, rpmres, op, res))
+
+def dump_rpmspec(s):
+    print("<%s> expands to <%s>"%(s, expand_with_rpmspec(s)))
+
+def dump_rpmspec_test(s):
+    res = expand_with_rpmspec("%if "+s+"\ntrue\n%else\nfalse\n%endif")
+    print("<%s> is %s"%(s, res =='true'))
 
 ######################################################################
 #                          Utils
 ######################################################################
-
-import re
-import codecs
 
 ESCAPE_SEQUENCE_RE = re.compile(r'''
     ( \\U........      # 8-digit hex escapes
@@ -837,6 +885,40 @@ def wrap_paren(s, use_paren=None):
     if use_paren:
         return "("+s+")"
     return s
+
+def warn(*args):
+    sys.stderr.write((' '.join(map(str, args)))+"\n")
+
+def parse_range_num(s):
+    sign = 1
+    if s[0] == '-':
+        s = s[1:]
+        sign = -1
+    if s == 'inf':
+        n = HI_INF
+    else:
+        n = int(s)
+    return n*sign
+
+def split_var_arg(s, t):
+    try:
+        eq = s.index('=')
+    except ValueError as e:
+        raise Exception("bad var definition (%s), use VAR=VAL"%s)
+    name = s[0:eq]
+    val = s[eq+1:]
+
+    if t == 'int':
+        if not re.match(r'^\d+$', val):
+            raise Exception("int var %s defined to something different than an int (%s)"%(name, val))
+        return (name, int(val))
+    elif t == 'str':
+        return (name, val)
+    elif t == 'range':
+        m = re.match(r"^(-?(?:inf|\d+)),(-?(?:inf|\d+))$", val)
+        if not m:
+            raise Exception("bad range var definition %s, use VAR=MIN,MAX (you can use inf/-inf)"%val)
+        return (name, parse_range_num(m.group(1)), parse_range_num(m.group(2)))
 
 if __name__ == '__main__':
     main()
