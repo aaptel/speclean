@@ -1,0 +1,593 @@
+$ speclean
+  -u rhel_version -u mandriva_version -u fedora_version -u centos_version \
+  -u ul_version -s _vendor=suse -r suse_version=1100,inf samba.spec
+cleaning samba.spec...
+assuming      %{rhel_version} is UNDEF
+assuming  %{mandriva_version} is UNDEF
+assuming    %{fedora_version} is UNDEF
+assuming    %{centos_version} is UNDEF
+assuming      %{suse_version} is [1100 ; inf]
+assuming           %{_vendor} is "suse"
+assuming        %{ul_version} is UNDEF
+
+--- samba.spec	2017-03-23 20:05:04.209684212 +0100
++++ samba.spec.new	2017-03-23 20:48:39.296026502 +0100
+@@ -41,66 +41,31 @@
+ %if 0%{?suse_version} > 1210
+ BuildRequires:  gamin-devel
+ %else
+-%if 0%{?rhel_version} < 700
+ BuildRequires:  fam-devel
+ %endif
+-%endif
+ BuildRequires:  krb5-devel
+ BuildRequires:  libacl-devel
+ BuildRequires:  libattr-devel
+-%if 0%{?centos_version} > 599 ||0%{?fedora_version} > 11 || 0%{?mandriva_version} > 2009 || 0%{?rhel_version} > 599 || 0%{?suse_version} > 1100
++%if 0%{?suse_version} > 1100
+ BuildRequires:  libuuid-devel
+ %endif
+ BuildRequires:  ncurses-devel
+ BuildRequires:  pam-devel
+-%if 0%{?centos_version} > 599 ||0%{?fedora_version} > 11 || 0%{?rhel_version} > 599
+-BuildRequires:  perl-ExtUtils-MakeMaker
+-%endif
+ BuildRequires:  popt-devel
+ BuildRequires:  python-devel
+-%if 0%{?suse_version} > 0
+ BuildRequires:  python-xml
+-%endif
+ BuildRequires:  readline-devel
+-%if 0%{?suse_version}
+ BuildRequires:  cracklib-devel
+ BuildRequires:  libopenssl-devel
+ BuildRequires:  openldap2-devel
+-%endif
+-%if 0%{?suse_version} > 1030
+ BuildRequires:  gdbm-devel
+ BuildRequires:  pwdutils
+-%endif
+-%if 0%{?suse_version} > 930
+ BuildRequires:  libnscd-devel
+-%endif
+-%if 0%{?suse_version} > 930 && 0%{?suse_version} < 1031
+-BuildRequires:  dmapi-devel
+-BuildRequires:  libxml2-devel
+-BuildRequires:  mysql-devel
+-BuildRequires:  postgresql-devel
+-BuildRequires:  xfsprogs-devel
+-%endif
+-%if 0%{?fedora_version}
+-BuildRequires:  cracklib-devel
+-%endif
+-%if 0%{?centos_version} || 0%{?fedora_version} || 0%{?rhel_version} || 0%{?mandriva_version}
+-BuildRequires:  openldap-devel
+-%endif
+-%if 0%{?suse_version} > 1000
+ BuildRequires:  keyutils-devel
+-%endif
+-%if 0%{?fedora_version} || 0%{?rhel_version} > 500
+-BuildRequires:  keyutils-libs-devel
+-%endif
+ %if 0%{?suse_version} > 1110
+ BuildRequires:  fdupes
+ %endif
+-%if 0%{?suse_version} > 1020
+ %define pkgconfig_req pkg-config
+-%else
+-%define pkgconfig_req pkgconfig
+-%endif
+ BuildRequires:  %{pkgconfig_req}
+ BuildRequires:  libldb-devel
+ BuildRequires:  python-ldb-devel
+@@ -141,14 +106,10 @@
+ %define samba_source_signature_location https://ftp.samba.org/pub/samba/rc/samba-%{version}%{samba_ver_suffix}.tar.asc
+ %endif
+ %define	samba_ver_full %{samba_ver}%{samba_ver_suffix}
+-%if 0%{?suse_version} && 0%{?suse_version} < 1031
+-%define libsmbclient_name libsmbclient
+-%else
+ %define libsmbclient_name libsmbclient0
+-%endif
+ %define libnetapi_name libnetapi0
+ %define libwbclient_name libwbclient0
+-%if 0%{?suse_version} == 0 || 0%{?suse_version} > 1140
++%if 0%{?suse_version} > 1140
+ %define	build_make_smp_mflags %{?_smp_mflags}
+ %else
+ %define	build_make_smp_mflags %{?jobs:-j%jobs}
+@@ -163,10 +124,8 @@
+ Url:            https://www.samba.org/
+ Obsoletes:      samba-gplv3 < %{version}
+ Obsoletes:      samba-32bit < %{version}
+-%if 0%{?suse_version} > 1030
+ Recommends:     cron
+ Recommends:     logrotate
+-%endif
+ Summary:        A SMB/CIFS File, Print, and Authentication Server
+ License:        GPL-3.0+
+ Group:          Productivity/Networking/Samba
+@@ -190,12 +149,12 @@
+ #__START_GLOBAL_DEFINES
+ # Choose some features / extra packages here
+ ############################################
+-%if 0%{?suse_version} == 0 || 0%{?suse_version} > 1120
++%if 0%{?suse_version} > 1120
+ %define cifs_init_script cifs
+ %else
+ %define cifs_init_script smbfs
+ %endif
+-%if 0%{?suse_version} && 0%{?suse_version} < 1111
++%if 0%{?suse_version} < 1111
+ # pre-11.2 doesn't know the python_* macros
+ %define python_sitelib %py_sitedir
+ %define python_sitearch %py_sitedir
+@@ -217,25 +176,13 @@
+ %else
+ %define	PIDDIR %{_localstatedir}/run/samba
+ %endif
+-%if "%{_vendor}" == "suse"
+ %define	NET_CFGDIR network
+-%else
+-%define	NET_CFGDIR network-scripts
+-%endif
+ %define	auth_modules auth_unix,auth_wbc,auth_server,auth_netlogond,auth_script,auth_samba4
+ %define	idmap_modules idmap_ad,idmap_adex,idmap_hash,idmap_ldap,idmap_rfc2307,idmap_rid,idmap_tdb2
+ %define	pdb_modules pdb_tdbsam,pdb_ldap,pdb_ads,pdb_smbpasswd,pdb_wbc_sam,pdb_samba4
+ %define	vfs_modules vfs_cacheprime,vfs_readahead
+-%if 0%{?ul_version} >= 1
+-%define	VENDOR UL
+-%else
+-%if "%{_vendor}" == "suse" || "%{_vendor}" == "redhat"
+ %define	VENDOR SUSE
+-%else
+-%define	VENDOR %_vendor
+-%endif
+-%endif
+-%if 0%{?suse_version} == 0 || 0%{?suse_version} > 1120
++%if 0%{?suse_version} > 1120
+ %define cups_lib_dir %{_prefix}/lib/cups
+ %else
+ %define cups_lib_dir %{_libdir}/cups
+@@ -299,7 +246,6 @@
+ Branch:         %{BRANCH}
+
+
+-%if 0%{?suse_version} == 0 || 0%{?suse_version} > 1020
+ %package core-devel
+ Summary:        Development files shared by Samba subpackages
+ License:        GPL-3.0+
+@@ -312,10 +258,9 @@
+
+ Source Timestamp: %{SOURCE_TIMESTAMP}
+ Branch:         %{BRANCH}
+-%endif
+
+
+-%if 0%{?suse_version} && 0%{?suse_version} < 1001 || 0%{?suse_version} > 1110
++%if 0%{?suse_version} > 1110
+
+ %package doc
+ #__START_GLOBAL_PAC_DOC
+@@ -349,7 +294,7 @@
+ Group:          Development/Libraries/C and C++
+ Requires:       krb5
+ Requires:       /sbin/ldconfig
+-%if 0%{?suse_version} > 1210 &&  0%{?suse_version} < 1315
++%if 0%{?suse_version} > 1210 && 0%{?suse_version} < 1315
+ Requires:       libfam0-gamin
+ %endif
+
+@@ -365,9 +310,7 @@
+ Summary:        Perl IDL compiler
+ License:        GPL-3.0+
+ Group:          Development/Tools
+-%if 0%{?suse_version} > 0
+ Requires:       perl-base
+-%endif
+ Requires:       perl-Parse-Yapp
+ Requires:       perl(:MODULE_COMPAT_%(eval "`%{__perl} -V:version`"; echo $version))
+
+@@ -420,14 +363,10 @@
+ Obsoletes:      samba-gplv3-winbind < %{version}
+ Provides:       samba-client:/usr/sbin/winbindd
+ Requires:       %{libwbclient_name} = %{version}-%{release}
+-%if 0%{?suse_version}
+ Requires:       pam-config
+-%endif
+-%if 0%{?suse_version} > 1030
+ Recommends:     cron
+ Recommends:     logrotate
+ Recommends:     /usr/sbin/nscd
+-%endif
+ %if 0%{?suse_version} < 1221
+ Requires:       %{?insserv_prereq}
+ %endif
+@@ -447,7 +386,6 @@
+ Summary:        Clustered TDB
+ License:        GPL-3.0+
+ Group:          System/Daemons
+-%if 0%{?suse_version}
+ Requires(pre):  %{?fillup_prereq}
+ %if 0%{?suse_version} > 1220
+ BuildRequires:  systemd-rpm-macros
+@@ -458,9 +396,6 @@
+ %else
+ Requires(pre):  %{insserv_prereq}
+ %endif
+-%else
+-Requires(pre): /sbin/chkconfig
+-%endif
+ Requires(pre): coreutils
+ Requires(pre): /bin/mktemp
+ Requires(pre): /usr/bin/killall
+@@ -956,9 +891,7 @@
+
+
+ %package -n %{libsmbclient_name}
+-%if 0%{?suse_version} > 1030
+ Obsoletes:      libsmbclient < %{version}
+-%endif
+ Summary:        Samba Client Library
+ License:        GPL-3.0+
+ Group:          System/Libraries
+@@ -1022,9 +955,7 @@
+ License:        LGPL-3.0+
+ Group:          System/Libraries
+ Requires:       /sbin/ldconfig
+-%if 0%{?suse_version} > 1030
+ Recommends:     samba-winbind = %{version}-%{release}
+-%endif
+
+ %description -n %{libwbclient_name}
+ This package includes the wbclient library.
+@@ -1096,7 +1027,6 @@
+ test 0%{?mandriva_version} -gt 0 && product_version=%{?mandriva_version}
+ test 0%{?rhel_version} -gt 0 && product_version=%{?rhel_version}
+ test 0%{?suse_version} -gt 0 && product_version=%{?suse_version}
+-%if 0%{?suse_version} > 0
+ major_version=$((${product_version}/100))
+ minor_version=$((${product_version}/10))
+ minor_version="${minor_version#$major_version}"
+@@ -1107,9 +1037,6 @@
+ 	1315) product_suffix="-SLE_12" ;;
+ 	*) product_suffix="-oS${product_version}" ;;
+ esac
+-%else
+-product_suffix="-OBS"
+-%endif
+ # Add the build architecture
+ test "%{_build_arch}" != "" && \
+ 	product_suffix="${product_suffix}-%{_build_arch}"
+@@ -1125,7 +1052,7 @@
+ fi
+
+ export CFLAGS="%{optflags} -D_GNU_SOURCE -D_LARGEFILE64_SOURCE -DIDMAP_RID_SUPPORT_TRUSTED_DOMAINS"
+-%if 0%{?suse_version} && 0%{?suse_version} < 1141
++%if 0%{?suse_version} < 1141
+ %{?suse_update_config:%{suse_update_config -f}}
+ %endif
+ %if 0%{?suse_version} < 1111
+@@ -1180,9 +1107,7 @@
+ 	%{buildroot}/%{_sysconfdir}/{pam.d,xinetd.d,logrotate.d} \
+ 	%{buildroot}/%{_sysconfdir}/openldap/schema \
+ 	%{buildroot}/%{_sysconfdir}/sysconfig/%{NET_CFGDIR}/{if-{down,up}.d,scripts} \
+-%if 0%{?suse_version} && 0%{?suse_version} > 1020
+ 	%{buildroot}/%{_sysconfdir}/sysconfig/SuSEfirewall2.d/services \
+-%endif
+ 	%{buildroot}/%{_sysconfdir}/security \
+ 	%{buildroot}/%{_sysconfdir}/slp.reg.d \
+ 	%{buildroot}/%{CONFIGDIR} \
+@@ -1225,11 +1150,7 @@
+ %endif
+
+ # CTDB
+-%if 0%{?suse_version}
+ install -m 0644 vendor-files/config/sysconfig.ctdb %{buildroot}/%{_var}/adm/fillup-templates
+-%else
+-install -m 0644 vendor-files/config/sysconfig.ctdb ${RPM_BUILD_ROOT}/%{_sysconfdir}/sysconfig/ctdb
+-%endif
+ %if 0%{?suse_version} > 1220
+ install -m 0755 ctdb/config/ctdb.service %{buildroot}%{_unitdir}/ctdb.service
+ ln -s service %{buildroot}/%{_sbindir}/rcctdb
+@@ -1266,12 +1187,12 @@
+ for file in smb.conf lmhosts smbusers smbpasswd smbusers; do
+ 	install -m 0644 "config/${file}" %{buildroot}/%{CONFIGDIR}/${file}
+ done
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ 	install -m 0644 -p config/cifstab %{buildroot}/%{CONFIGDIR}/%{cifs_init_script}tab
+ %endif
+ section_names=$( sed -ne 's/^\[\(.*\)\]$/\1/p' config/smb.conf)
+ for section in $section_names; do
+-%if 0%{?suse_version} > 0 && 0%{?suse_version} < 1211
++%if 0%{?suse_version} < 1211
+ 	LD_LIBRARY_PATH=../source3/bin/ \
+ %endif
+ 	../source3/bin/testparm -s --section-name "${section}" config/smb.conf >"%{buildroot}/%{_datadir}/samba/templates/default-${section}" || :
+@@ -1281,7 +1202,6 @@
+ done
+ # start scripts
+ scriptSuffix=""
+-%if 0%{?suse_version}
+ if test 0%{?suse_version} -lt 901; then
+ 	scriptSuffix="-900"
+ elif test 0%{?suse_version} -lt 1011; then
+@@ -1291,9 +1211,8 @@
+ elif test 0%{?suse_version} -lt 1131; then
+ 	scriptSuffix="-1130"
+ fi
+-%endif
+ startScripts="smb nmb winbind"
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ 	startScripts="${startScripts} %{cifs_init_script}"
+ %endif
+ %if 0%{?suse_version} > 1220
+@@ -1331,7 +1250,7 @@
+ for script in dhcpcd-hook-samba dhcpcd-hook-samba-functions samba-winbindd; do
+ 	install -m 0755 "tools/${script}" "%{buildroot}/%{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/${script}"
+ done
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ 	touch %{buildroot}/var/run/%{cifs_init_script}
+ %if 0%{?suse_version} < 1121
+ 	sed -e 's/cifs/smbfs/g' tools/cifs >%{buildroot}/%{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/%{cifs_init_script}
+@@ -1344,28 +1263,20 @@
+ for script in 21-dhcpcd-hook-samba 55-samba-winbindd; do
+ 	touch %{buildroot}/%{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-{down,up}.d/${script}
+ done
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ 	touch %{buildroot}/%{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-{down,up}.d/21-%{cifs_init_script}
+ %endif
+ # Install SuSEfirewall2 config files
+-%if 0%{?suse_version} && 0%{?suse_version} > 1020
+ install -m 0644 config/sysconfig.firewall.netbios-server \
+ 	%{buildroot}%{_sysconfdir}/sysconfig/SuSEfirewall2.d/services/netbios-server
+ install -m 0644 config/sysconfig.firewall.samba-server \
+ 	%{buildroot}%{_sysconfdir}/sysconfig/SuSEfirewall2.d/services/samba-server
+-%endif
+-%if 0%{?suse_version} && 0%{?suse_version} > 1100
++%if 0%{?suse_version} > 1100
+ install -m 0644 config/sysconfig.firewall.samba-client \
+ 	%{buildroot}%{_sysconfdir}/sysconfig/SuSEfirewall2.d/services/samba-client
+ %endif
+ # Add logrotate settings for nmbd and smbd only on systems newer than 8.1.
+-%if 0%{?suse_version} && 0%{?suse_version} < 811
+-	LOGROTATE_FILES="samba-winbind"
+-	rm -f "${RPM_BUILD_DIR}/samba-%{samba_ver_full}/filelist-samba"
+-	touch "${RPM_BUILD_DIR}/samba-%{samba_ver_full}/filelist-samba"
+-%else
+ 	LOGROTATE_FILES="samba samba-winbind"
+-%endif
+ for file in ${LOGROTATE_FILES}; do
+ 	install -m 0644 logrotate/${file} %{buildroot}/%{_sysconfdir}/logrotate.d/${file}
+ 	rm -f "${RPM_BUILD_DIR}/samba-%{samba_ver_full}/filelist-${file}"
+@@ -1420,9 +1331,9 @@
+ for file in %{buildroot}%{_mandir}/man8/vfs_*; do
+ 	case "${file#%{buildroot}}" in
+ 		%{_mandir}/man8/vfs_ceph.8)
+-			%if 0%{?build_vfs_ceph} == 0
++%if 0%{?build_vfs_ceph} == 0
+ 			rm ${file}
+-			%endif
++%endif
+ 			continue
+ 			;;
+ 		%{_mandir}/man8/vfs_glusterfs.8)
+@@ -1445,7 +1356,7 @@
+ install -m 0644 examples/LDAP/samba.schema %{buildroot}/%{_sysconfdir}/openldap/schema/samba3.schema
+ install -m 0644 examples/LDAP/samba-nds.schema %{buildroot}/%{_datadir}/samba/LDAP/samba-nds.schema
+ # Clean up installed doc if we have a noarch doc package
+-%if 0%{?suse_version} == 0 || 0%{?suse_version} > 1000 && 0%{?suse_version} < 1120
++%if 0%{?suse_version} < 1120
+ while read file; do
+ 	rm -r "%{buildroot}/${file#%* }"
+ done <"${RPM_BUILD_DIR}/samba-%{samba_ver_full}/filelist-samba-doc"
+@@ -1493,7 +1404,7 @@
+ %endif
+
+ %pre client
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ # non SUSE + 11.3 an newer, update, no cifstab, but smbfstab
+ if [ ! 0%{?suse_version} -lt 1121 -a \
+ 	${1:-0} -gt 1 -a \
+@@ -1511,12 +1422,12 @@
+ /sbin/ldconfig
+ if [ ${1:-0} -eq 1 ]; then
+ # Only insserv cifs if we're not in update mode.
+-%if 0%{?suse_version} > 0 && 0%{?suse_version} < 1131
++%if 0%{?suse_version} < 1131
+ %{?insserv_force_if_yast:%{insserv_force_if_yast %{cifs_init_script}}}
+ %endif
+ 	ln -fs %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/dhcpcd-hook-samba %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-down.d/21-dhcpcd-hook-samba
+ 	ln -fs %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/dhcpcd-hook-samba %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-up.d/21-dhcpcd-hook-samba
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ 	ln -fs %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/%{cifs_init_script} %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-down.d/21-%{cifs_init_script}
+ 	ln -fs %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/%{cifs_init_script} %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-up.d/21-%{cifs_init_script}
+ %endif
+@@ -1526,7 +1437,7 @@
+ 			continue
+ 		rm -f %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/${if_case}/dhcpcd-hook-samba
+ 		ln -fs %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/dhcpcd-hook-samba %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/${if_case}/21-dhcpcd-hook-samba
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ 		test -h %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/${if_case}/%{cifs_init_script} || \
+ 			continue
+ 		rm -f %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/${if_case}/%{cifs_init_script}
+@@ -1542,7 +1453,7 @@
+ 	test ! -e %{LOCKDIR}/lock/$fn && test -e %{LOCKDIR}/$fn && \
+ 		mv %{LOCKDIR}/$fn %{LOCKDIR}/lock/
+ done
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ if [ ${1:-0} -gt 1 -a -f /var/adm/backup/etc_samba_smbfstab-move ]; then
+ 	test -f /etc/samba/cifstab && \
+ 		mv /etc/samba/cifstab /etc/samba/cifstab.rpmnew
+@@ -1645,7 +1556,6 @@
+
+ %postun winbind
+ /sbin/ldconfig
+-%if 0%{?suse_version}
+ if [ $1 -eq 0 ]; then
+ %{_sbindir}/pam-config --delete --winbind
+ if [ -x %{_sbindir}/nscd ]; then
+@@ -1653,7 +1563,6 @@
+ 	%{_sbindir}/nscd -i group
+ fi
+ fi
+-%endif
+ %if 0%{?suse_version} > 1220
+ %service_del_postun winbind.service
+ %else
+@@ -1670,15 +1579,9 @@
+ %if 0%{?suse_version} > 1220
+ %service_del_preun ctdb.service
+ %endif
+-%if 0%{?suse_version} == 0
+-if [ $1 = 0 ] ; then
+-	test -x /sbin/chkconfig && /sbin/chkconfig --del ctdb
+-fi
+-%endif
+ exit 0
+
+ %post -n ctdb
+-%if 0%{?suse_version}
+ %if 0%{?suse_version} > 1220
+ %{fillup_only -n ctdb}
+ %service_add_post ctdb.service
+@@ -1686,20 +1589,13 @@
+ %else
+ %{fillup_and_insserv -n ctdb}
+ %endif
+-%endif
+
+ %postun -n ctdb
+-%if 0%{?suse_version}
+ %if 0%{?suse_version} > 1220
+ %service_del_postun ctdb.service
+ %else
+ %{insserv_cleanup}
+ %endif
+-%else
+-if [ "$1" -ge "1" ]; then
+-	%{INITDIR}/ctdb restart >/dev/null
+-fi
+-%endif
+ exit 0
+
+ %post -n %{libsmbclient_name} -p /sbin/ldconfig
+@@ -1720,7 +1616,7 @@
+ %{_unitdir}/nmb.service
+ %{_unitdir}/smb.service
+ %endif
+-%if 0%{?suse_version} && 0%{?suse_version} < 1111
++%if 0%{?suse_version} < 1111
+ %attr(0600,root,root) %config(noreplace) %{CONFIGDIR}/smbpasswd
+ %else
+ %ghost %{CONFIGDIR}/smbpasswd
+@@ -1728,10 +1624,8 @@
+ %config(noreplace) %{CONFIGDIR}/smbusers
+ %config %{_sysconfdir}/pam.d/samba
+ %{_sysconfdir}/slp.reg.d
+-%if 0%{?suse_version} && 0%{?suse_version} > 1020
+ %{_sysconfdir}/sysconfig/SuSEfirewall2.d/services/netbios-server
+ %{_sysconfdir}/sysconfig/SuSEfirewall2.d/services/samba-server
+-%endif
+ %dir %{_libdir}/samba
+ %dir %{_libdir}/samba/vfs
+ %dir %{_libdir}/samba/ldb
+@@ -1747,7 +1641,7 @@
+ %{_sbindir}/rcnmb
+ %{_sbindir}/rcsmb
+ %{_sbindir}/smbd
+-%if 0%{?suse_version} && 0%{?suse_version} < 1100
++%if 0%{?suse_version} < 1100
+ %dir %{_datadir}/omc
+ %dir %{_datadir}/omc/svcinfo.d
+ %endif
+@@ -1759,9 +1653,6 @@
+ %{_mandir}/man5/smbpasswd.5.*
+ %{_mandir}/man8/nmbd.8.*
+ %{_mandir}/man8/smbd.8.*
+-%if 0%{?suse_version} && 0%{?suse_version} < 1021
+-%{_includedir}/samba
+-%endif
+ %exclude %{_mandir}/man8/samba-tool.8.*
+ %exclude %{_mandir}/man8/samba.8.*
+ %if 0%{?suse_version} > 1220
+@@ -1770,14 +1661,14 @@
+
+ %files client
+ %defattr(-,root,root)
+-%if 0%{?suse_version} && 0%{?suse_version} < 1221
++%if 0%{?suse_version} < 1221
+ %attr(0754,root,root) %config %{INITDIR}/%{cifs_init_script}
+ %attr(0600,root,root) %config(noreplace) %{CONFIGDIR}/%{cifs_init_script}tab
+ %ghost %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-down.d/21-%{cifs_init_script}
+ %ghost %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-up.d/21-%{cifs_init_script}
+ %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/%{cifs_init_script}
+ %{_sbindir}/rc%{cifs_init_script}
+-%if 0%{?suse_version} && 0%{?suse_version} < 1100
++%if 0%{?suse_version} < 1100
+ %dir %{_datadir}/omc
+ %dir %{_datadir}/omc/svcinfo.d
+ %endif
+@@ -1794,7 +1685,7 @@
+ %ghost %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/if-up.d/21-dhcpcd-hook-samba
+ %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/dhcpcd-hook-samba
+ %{_sysconfdir}/sysconfig/%{NET_CFGDIR}/scripts/dhcpcd-hook-samba-functions
+-%if 0%{?suse_version} && 0%{?suse_version} > 1100
++%if 0%{?suse_version} > 1100
+ %{_sysconfdir}/sysconfig/SuSEfirewall2.d/services/samba-client
+ %endif
+ %{_bindir}/cifsdd
+@@ -1883,7 +1774,6 @@
+ %dir %{_tmpfilesdir}
+ %{_tmpfilesdir}/samba.conf
+ %endif
+-%if 0%{?suse_version} == 0 || 0%{?suse_version} > 1020
+
+ %files core-devel
+ %defattr(-,root,root)
+@@ -1930,7 +1820,6 @@
+ %_includedir/samba-4.0/util_ldb.h
+ %{_libdir}/libnss_winbind.so
+ %{_libdir}/libnss_wins.so
+-%endif
+
+ %files libs
+ %defattr(-,root,root)
+@@ -2099,7 +1988,7 @@
+ %{_mandir}/man8/idmap_tdb2.8.*
+ %{_mandir}/man8/pam_winbind.8.*
+ %{_mandir}/man8/winbindd.8.*
+-%if 0%{?suse_version} && 0%{?suse_version} < 1100
++%if 0%{?suse_version} < 1100
+ %dir %{_datadir}/omc
+ %dir %{_datadir}/omc/svcinfo.d
+ %endif
+@@ -2109,7 +1998,7 @@
+ %{_var}/adm/fillup-templates/sysconfig.samba-winbind
+ %endif
+ %attr(0770,root,root) %{_var}/cache/krb5rcache
+-%if 0%{?suse_version} && 0%{?suse_version} < 1001 || 0%{?suse_version} > 1110
++%if 0%{?suse_version} > 1110
+
+ %files doc -f filelist-samba-doc
+ #__START_DOC_FILES
+@@ -2122,11 +2011,7 @@
+ %files -n ctdb
+ %defattr(-,root,root)
+ %dir %{_sysconfdir}/ctdb
+-%if 0%{?suse_version}
+ %{_var}/adm/fillup-templates/sysconfig.ctdb
+-%else
+-%{_sysconfdir}/sysconfig/ctdb
+-%endif
+ %{_sysconfdir}/ctdb/notify.sh
+ %{_sysconfdir}/ctdb/ctdb-crash-cleanup.sh
+ %{_sysconfdir}/ctdb/debug-hung-script.sh
