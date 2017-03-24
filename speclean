@@ -55,20 +55,28 @@ def dump_rpmspec_test(s):
     print("<%s> is %s"%(s, res =='true'))
 
 def main():
-    clean_spec("samba.spec")
+    clean_spec("samba.spec",
+               env={
+                   "_vendor": "suse",
+                   "suse_version": RangedValueExpr(1100, HI_INF),
+                   "fedora_version": None,
+                   "mandriva_version": None,
+                   "centos_version": None,
+                   "rhel_version": None,
+                   "ul_version": None,
+               })
     exit(0)
+    dump_rpmspec('%if 0\nA\n%else 0 %version iolsdjfoighfj qsjdoqisj (1)\nB\n%else\nC\n%endif\n')
     cmp_expand("%{?def:1}")
     cmp_expand("%{?def:2}")
     cmp_expand("%{def:2}")
     cmp_expand("%{?!def}")
     cmp_expand("%{?!def:2}")
-
     cmp_expand("%{?undef:1}")
     cmp_expand("%{?undef:2}")
     cmp_expand("%{undef:2}")
     cmp_expand("%{?!undef}")
     cmp_expand("%{?!undef:2}")
-
     dump_rpmspec('%define val 0\n0%{?val:1}')
     dump_rpmspec('0%{?version:1}')
     dump_rpmspec('0%{?version}')
@@ -718,16 +726,16 @@ def parse_spec(fn):
     last = []
     stack = [last]
 
-    for l in open(fn).readlines():
+    for l in open(fn):
         l = l[:-1]
-        if IF_RX.match(l):
-            last = IfExpr(l)
-            stack.append(last)
-        elif IFARCH_RX.match(l):
+        if IFARCH_RX.match(l):
             last = IfExpr(l, arch=True)
             stack.append(last)
         elif IFNARCH_RX.match(l):
             last = IfExpr(l, arch=False)
+            stack.append(last)
+        elif IF_RX.match(l):
+            last = IfExpr(l)
             stack.append(last)
         elif ELSE_RX.match(l):
             last.set_else()
@@ -785,11 +793,23 @@ def _clean_spec_rec(x, env):
 
 
 def clean_spec(fn, env={}):
+    print("cleaning %s..."%fn)
+    for k,v in env.items():
+        print("assuming", "%20.20s"%("%%{%s}"%k), "is", to_str_wrapper(v) if v is not None else "UNDEF")
+    print()
+
     r = parse_spec(fn)
     with tempfile.NamedTemporaryFile("w+") as tmp:
         _clean_spec_rec(r, env)
         print_spec(r, tmp)
-        subprocess.call(['diff', '-u', fn, tmp.name])
+        tmp.flush()
+        try:
+            out = subprocess.check_output(['diff', '-u', fn, tmp.name])
+        except subprocess.CalledProcessError as e:
+            out = e.output
+        finally:
+            out = out.decode('utf-8')
+    print(out)
 
 ######################################################################
 #                          Utils
