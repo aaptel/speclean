@@ -1,4 +1,4 @@
-$ speclean
+$ speclean \
   -u rhel_version -u mandriva_version -u fedora_version -u centos_version \
   -u ul_version -s _vendor=suse -r suse_version=1100,inf samba.spec
 cleaning samba.spec...
