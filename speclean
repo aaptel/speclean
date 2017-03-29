@@ -46,12 +46,19 @@ def main():
                     help='assume VAR to defined to an integer')
     ap.add_argument('-r', '--range', dest='vars_range', action='append', metavar='VAR=MIN,MAX', default=[],
                     help='assume VAR to be defined to an integer in the interval MIN,MAX (included). You can use "inf" or "-inf".')
+    ap.add_argument('-f', '--file', dest='file', metavar='DEFNFILE',
+                    help='file containing one assumption per line (undef VAR|int VAR=N|str VAR=S|range VAR=MIN,MAX).')
     ap.add_argument('-e', '--eval', dest='test_eval', metavar='TESTEXPR',
                     help='try to simplify condition TESTEXPR instead of processing a specfile')
     ap.add_argument('spec', metavar='SPECFILE', nargs='?')
     args = ap.parse_args()
 
     env = {}
+
+    # process file first
+    if args.file:
+        env = read_env_from_file(args.file)
+
     for v in args.vars_undef:
         env[v] = None
     for vdef in args.vars_str:
@@ -945,6 +952,28 @@ def split_var_arg(s, t):
         if not m:
             raise Exception("bad range var definition %s, use VAR=MIN,MAX (you can use inf/-inf)"%val)
         return (name, parse_range_num(m.group(1)), parse_range_num(m.group(2)))
+
+def read_env_from_file(fn):
+    env = {}
+    for l in open(fn):
+        l = l[:-1]
+        if re.match(r'(?:^\s*#)|(?:^\s*$)', l):
+            continue
+
+        m = re.match(r'^\s*(undef|str|int|range)\s+(.+)', l)
+        if not m:
+            raise Exception("bad definition in file %s (<%s>)"%(fn, l))
+        deftype = m.group(1)
+        defval = m.group(2)
+        if deftype in ('int', 'str'):
+            k,v = split_var_arg(defval, deftype)
+            env[k] = v
+        elif deftype == 'range':
+            k,lo,hi = split_var_arg(defval, 'range')
+            env[k] = RangedValueExpr(lo, hi)
+        elif deftype == 'undef':
+            env[defval] = None
+    return env
 
 if __name__ == '__main__':
     main()
