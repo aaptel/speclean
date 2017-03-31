@@ -651,21 +651,6 @@ ELSE_RX = re.compile(r"^\s*%else")
 ENDIF_RX = re.compile(r"^\s*%endif")
 QUOTED_VAR_RX = re.compile(r'^"%(?:\{('+t_IDENT+r')\}|('+t_IDENT+r'))"$')
 
-def expand_with_rpmspec(s):
-    """Expand string with rpmspec -P and return expansion"""
-    beg = '#----xxxx-BEG-xxxx----\n'
-    end = '\n#----xxxx-END-xxxx----\n'
-    src = 'Summary: test summary\nName: test\n\nVersion: 1.2\nRelease: 1\n'+ \
-          'License: GPL\n%description\n%prep\n'+beg+s+end+'%build\n%install\n'+ \
-          '%clean\n%files\n%doc\n%changelog\n'
-    with tempfile.NamedTemporaryFile('w+') as tmp:
-        tmp.write(src)
-        tmp.flush()
-        out = subprocess.check_output(['rpmspec', '-P', tmp.name]).decode('utf-8')
-
-    m = re.search(beg+'(.*?)'+end, out, flags=re.M|re.DOTALL)
-    return m.group(1)
-
 class IfExpr:
     def __init__(self, cond, arch=None):
         self.cond = cond
@@ -796,106 +781,6 @@ def clean_spec(input_fn, env={}):
         sys.stdout.writelines(diff)
 
 ######################################################################
-#                       Testing & debugging
-######################################################################
-
-def test():
-    dump_rpmspec('%if 0\nA\n%else 0 %version iolsdjfoighfj qsjdoqisj (1)\nB\n%else\nC\n%endif\n')
-    cmp_expand("%{?def:1}")
-    cmp_expand("%{?def:2}")
-    cmp_expand("%{def:2}")
-    cmp_expand("%{?!def}")
-    cmp_expand("%{?!def:2}")
-    cmp_expand("%{?undef:1}")
-    cmp_expand("%{?undef:2}")
-    cmp_expand("%{undef:2}")
-    cmp_expand("%{?!undef}")
-    cmp_expand("%{?!undef:2}")
-    dump_rpmspec('%define val 0\n0%{?val:1}')
-    dump_rpmspec('0%{?version:1}')
-    dump_rpmspec('0%{?version}')
-    dump_rpmspec('0%{?undef}')
-    dump_rpmspec('0%{?undef:1}')
-    dump_rpmspec('0%{?!version}')
-    dump_rpmspec('0%{?!undef}')
-    dump_rpmspec('0%{?!version:1}')
-    dump_rpmspec('0%{?!undef:1}')
-    dump_rpmspec('0%{undef:1}')
-    dump_rpmspec('0%{version:1}')
-    #dump_tokens(r'''1 + 2 * 3''')
-    #dump_tokens(r'''abc_ "foo \" bar"''')
-    #dump_tokens(r'''1!=2 a || b && c''')
-    #dump_tokens(r'''0 %foo < 4''')
-    #dump_tokens(r'''0%foo < 4''')
-    #dump_parsing("1+1+5+8*2+1*4")
-    #dump_parsing("%foo+1+1*3+1+1", env={'foo':1})
-    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
-    #dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
-    #dump_parsing("%bar<10 || %foo+2>0", env={'foo':RangedValueExpr(-1, HI_INF)})
-    #dump_parsing("%v == 1", env={'v': RangedValueExpr(0,10)})
-    dump_parsing('''%s == aaa && 5 <= %v+1 && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
-    dump_parsing('''%s == aaa && 5 <= 1*(%v+1) && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
-    #dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
-    #print("<%s>"%expand_with_rpmspec('(%xyz) (%?xyz) (%?name) (%{?!xyz:%{?!abc:repl}})'))
-    dump_rpmspec('%abc')
-    dump_rpmspec('%{abc}')
-    dump_rpmspec('a%bcdf')
-    dump_rpmspec('a%%bcdf')
-    dump_rpmspec('a%%%bcdf')
-    dump_rpmspec('a%%%%bcdf')
-    dump_rpmspec_test(r'''%(echo '"\\abc1"') == "abc1"''')
-
-
-def dump_tokens(s):
-    print("LEXING <%s>"%s)
-    lex.input(s)
-    while True:
-        t = lex.token()
-        if not t:
-            break
-        print("> %-10.10s <%s>"%(t.type, t.value))
-    print()
-
-def dump_parsing(s, env={}):
-    #dump_tokens(s)
-    print("PARSING %s"%s)
-    if env:
-        for k,v in env.items():
-            print("  assuming %%%s = %s"%(k, to_str_wrapper(v)))
-    r = yacc.parse(s)
-    print("=> %s"%r.to_str())
-    ev = r.evaluate(env)
-    res = expr_to_bool_or_none(ev)
-    if res is None:
-        print("=>", ev.to_str())
-    else:
-        print("=>", ev, "(decidable!)")
-    print()
-
-def cmp_expand(s):
-    read = yacc.parse(s)
-    if not read:
-        print("failed to parse %s"%s)
-        return
-    ev = read.evaluate(env={'def':42, 'undef':None})
-    res = expr_to_bool_or_none(ev)
-    rpmres = expand_with_rpmspec('%define def 42\n'+s)
-
-    if res is None:
-        print("cant fully expand %s => %s"%(read.to_str(), ev.to_str()))
-    else:
-        res = str(ev)
-        op = '==' if rpmres == res else '!='
-        print('%s => rpm<%s> %s <%s>'%(s, rpmres, op, res))
-
-def dump_rpmspec(s):
-    print("<%s> expands to <%s>"%(s, expand_with_rpmspec(s)))
-
-def dump_rpmspec_test(s):
-    res = expand_with_rpmspec("%if "+s+"\ntrue\n%else\nfalse\n%endif")
-    print("<%s> is %s"%(s, res =='true'))
-
-######################################################################
 #                          Utils
 ######################################################################
 
@@ -974,6 +859,144 @@ def read_env_from_file(fn):
         elif deftype == 'undef':
             env[defval] = None
     return env
+
+######################################################################
+#                       Testing & debugging
+######################################################################
+import unittest
+import tempfile
+
+def test():
+    dump_parsing("1+1+5+8*2+1*4")
+    dump_parsing("%foo+1+1*3+1+1", env={'foo':1})
+    dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
+    dump_parsing("%foo>0 && %other_var+1+1", env={'foo':1})
+    dump_parsing("%bar<10 || %foo+2>0", env={'foo':RangedValueExpr(-1, HI_INF)})
+    dump_parsing("%v == 1", env={'v': RangedValueExpr(0,10)})
+    dump_parsing('''%s == aaa && 5 <= %v+1 && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
+    dump_parsing('''%s == aaa && 5 <= 1*(%v+1) && %v <= 5''', env={'s':'aaa','v': RangedValueExpr(4,10)})
+    dump_parsing("0%suse_version+1 < 1110 && (%other_var+1+1) && %suse_version > 500 || 0", env={'suse_version':600})
+    print("<%s>"%expand_with_rpmspec('(%xyz) (%?xyz) (%?name) (%{?!xyz:%{?!abc:repl}})'))
+    dump_rpmspec('%abc')
+    dump_rpmspec('%{abc}')
+    dump_rpmspec('a%bcdf')
+    dump_rpmspec('a%%bcdf')
+    dump_rpmspec('a%%%bcdf')
+    dump_rpmspec('a%%%%bcdf')
+    dump_rpmspec_test(r'''%(echo '"\\abc1"') == "abc1"''')
+
+
+def dump_tokens(s):
+    print("LEXING <%s>"%s)
+    lex.input(s)
+    while True:
+        t = lex.token()
+        if not t:
+            break
+        print("> %-10.10s <%s>"%(t.type, t.value))
+    print()
+
+def dump_parsing(s, env={}):
+    #dump_tokens(s)
+    print("PARSING %s"%s)
+    if env:
+        for k,v in env.items():
+            print("  assuming %%%s = %s"%(k, to_str_wrapper(v)))
+    r = yacc.parse(s)
+    print("=> %s"%r.to_str())
+    ev = r.evaluate(env)
+    res = expr_to_bool_or_none(ev)
+    if res is None:
+        print("=>", ev.to_str())
+    else:
+        print("=>", ev, "(decidable!)")
+    print()
+
+def dump_rpmspec(s):
+    print("<%s> expands to <%s>"%(s, expand_with_rpmspec(s)))
+
+def dump_rpmspec_test(s):
+    res = expand_with_rpmspec("%if "+s+"\ntrue\n%else\nfalse\n%endif")
+    print("<%s> is %s"%(s, res =='true'))
+
+def expand_with_rpmspec(s):
+    """Expand string with rpmspec -P and return expansion"""
+    beg = '#----xxxx-BEG-xxxx----\n'
+    end = '\n#----xxxx-END-xxxx----\n'
+    src = 'Summary: test summary\nName: test\n\nVersion: 1.2\nRelease: 1\n'+ \
+          'License: GPL\n%description\n%prep\n'+beg+s+end+'%build\n%install\n'+ \
+          '%clean\n%files\n%doc\n%changelog\n'
+
+    with tempfile.NamedTemporaryFile('w+') as tmp:
+        tmp.write(src)
+        tmp.flush()
+        try:
+            out = subprocess.check_output(['rpmspec', '-P', tmp.name]).decode('utf-8')
+        except subprocess.CalledProcessError as e:
+            print(s)
+            raise e
+
+    m = re.search(beg+'(.*?)'+end, out, flags=re.M|re.DOTALL)
+    return m.group(1)
+
+class TestCompareWithReference(unittest.TestCase):
+    def cmp_expand(self, s, env={}):
+        defns = '\n'.join(["%%define %s %s"%(x[0], x[1]) for x in env.items() if isinstance(x[1], (int, str))])
+        rpm_res = expand_with_rpmspec(defns+"\n"+s)
+        read = yacc.parse(s)
+        if not read:
+            raise Exception("failed to parse")
+
+        ev = read.evaluate(env)
+        res = str(ev)
+
+        if res is None:
+            raise Exception("can't determine value")
+        self.assertEqual(res, rpm_res)
+
+
+    def cmp_expand_cond(self, s, env={}):
+        defns = '\n'.join(["%%define %s %s"%(x[0], x[1]) for x in env.items() if isinstance(x[1], (int, str))])
+        rpm_res = expand_with_rpmspec(defns+"\n%if "+s+"\ntrue\n%else\nfalse\n%endif")
+        read = yacc.parse(s)
+        if not read:
+            raise Exception("failed to parse")
+
+        ev = read.evaluate(env)
+        res = expr_to_bool_or_none(ev)
+
+        if res is None:
+            raise Exception("can't determine value")
+        self.assertEqual(res, rpm_res=='true')
+
+    def test_cond_vars(self):
+        env={'def':42, 'undef':None}
+        self.cmp_expand("%{?def:1}", env)
+        self.cmp_expand("%{?def:2}", env)
+        self.cmp_expand("%{def:2}", env)
+        self.cmp_expand("%{?!def}", env)
+        self.cmp_expand("%{?!def:2}", env)
+        self.cmp_expand("%{?undef:1}", env)
+        self.cmp_expand("%{?undef:2}", env)
+        self.cmp_expand("%{undef:2}", env)
+        self.cmp_expand("%{?!undef}", env)
+        self.cmp_expand("%{?!undef:2}", env)
+
+    def test_cond_res(self):
+        env={'def':42, 'undef':None, 'vendor': "suse"}
+        self.cmp_expand_cond("1", env)
+        self.cmp_expand_cond("0", env)
+        self.cmp_expand_cond("1 || 0", env)
+        self.cmp_expand_cond("0 || 1", env)
+        self.cmp_expand_cond("0<1 || 0", env)
+        self.cmp_expand_cond("0 || 0<1", env)
+        self.cmp_expand_cond("1 == (0 || 0<1)", env)
+        self.cmp_expand_cond("aaa == aaa", env)
+        self.cmp_expand_cond('aaa != "aaa"', env)
+        self.cmp_expand_cond("aaa != aaa", env)
+        self.cmp_expand_cond("%def+1 != 0", env)
+        self.cmp_expand_cond("2+3*2*2 == 8*2", env)
+
 
 if __name__ == '__main__':
     main()
