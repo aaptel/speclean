@@ -35,6 +35,7 @@ from decimal import Decimal
 from ply import lex
 from ply import yacc
 
+IS_TTY = sys.stdout.isatty()
 
 def main():
     ap = argparse.ArgumentParser(description='Simplify spec files by assuming variables will have certain values')
@@ -652,16 +653,18 @@ ENDIF_RX = re.compile(r"^\s*%endif")
 QUOTED_VAR_RX = re.compile(r'^"%(?:\{('+t_IDENT+r')\}|('+t_IDENT+r'))"$')
 
 class IfExpr:
-    def __init__(self, cond, arch=None):
+    def __init__(self, cond, arch=None, loc=None):
         self.cond = cond
         self.arch = arch
-        self.is_in_else = False
         self.then_lines = []
         self.else_lines = []
         self.current = self.then_lines
+        self.loc_if = loc
+        self.loc_else = None
 
-    def set_else(self):
+    def set_else(self, loc=None):
         self.current = self.else_lines
+        self.loc_else = loc
 
     def append(self, s):
         self.current.append(s)
@@ -685,30 +688,47 @@ def print_spec(x, out, n=0):
     else:
         out.write((prefix*n)+x+"\n")
 
-def parse_spec(input_text):
+def parse_spec(input_text, filename=None):
     last = []
     stack = [last]
-
+    ln = 1
     for l in input_text.splitlines():
+        loc = (filename, ln, l)
         if IFARCH_RX.match(l):
-            last = IfExpr(l, arch=True)
+            last = IfExpr(l, arch=True, loc=loc)
             stack.append(last)
         elif IFNARCH_RX.match(l):
-            last = IfExpr(l, arch=False)
+            last = IfExpr(l, arch=False, loc=loc)
             stack.append(last)
         elif IF_RX.match(l):
-            last = IfExpr(l)
+            last = IfExpr(l, loc=loc)
             stack.append(last)
         elif ELSE_RX.match(l):
-            last.set_else()
+            if isinstance(last, list):
+                err("%else with no %if", loc=loc)
+            elif last.loc_else:
+                err("multiple %else for an %if branch", loc=loc)
+                err("started %if", loc=last.loc_if)
+                err("previous %else", loc=last.loc_else)
+            last.set_else(loc=loc)
         elif ENDIF_RX.match(l):
+            if isinstance(last, list):
+                err("%endif with no matching %if", loc=loc)
+                return None
             stack.pop()
             p = stack[-1]
             p.append(last)
             last = p
         else:
             last.append(l)
+        ln += 1
 
+    if not isinstance(last, list):
+        err("unmatched conditional at end of file")
+        err("started %if", loc=last.loc_if)
+        if last.loc_else:
+            err("started %else", loc=last.loc_else)
+        return None
     return last
 
 def _clean_cond(cond, env):
@@ -765,7 +785,10 @@ def clean_spec(input_fn, env={}):
         warn()
 
     spec_input = open(input_fn).read()
-    spec = parse_spec(spec_input)
+    spec = parse_spec(spec_input, filename=input_fn)
+    if spec is None:
+        warn("parsing error, stopping")
+        exit(1)
     _clean_spec_rec(spec, env)
     tmp = io.StringIO()
     print_spec(spec, tmp)
@@ -859,6 +882,20 @@ def read_env_from_file(fn):
         elif deftype == 'undef':
             env[defval] = None
     return env
+
+def err(msg, loc=None):
+    prefix = ""
+    if loc:
+        fn, ln, l = loc
+        if fn:
+            prefix = "%s:%d "%(fn, ln)
+        else:
+            prefix = "-:%d "%ln
+    if IS_TTY:
+        print("\033[1m%s\033[m\033[31m%s\033[m"%(prefix,msg), file=sys.stderr)
+    else:
+        print("%s%s"%(prefix,msg), file=sys.stderr)
+
 
 ######################################################################
 #                       Testing & debugging
